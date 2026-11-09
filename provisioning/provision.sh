@@ -59,17 +59,17 @@ ensure_input() {
 
 # ---------------------------------------------------------------- index set
 ensure_index_set() {
-  local title="$1" prefix="$2"
+  local title="$1" prefix="$2" description="$3"
   local id
   id="$(api GET /system/indices/index_sets | jq -r --arg t "$title" '.index_sets[] | select(.title == $t) | .id' | head -1)"
   if [[ -z "$id" ]]; then
     # Parte do index set padrão e ajusta título, prefixo e retenção (rotação diária, apaga após N dias — LGPD).
     local body
-    body="$(api GET /system/indices/index_sets | jq -c --arg t "$title" --arg p "$prefix" --arg min "P${RETENTION_DAYS}D" \
+    body="$(api GET /system/indices/index_sets | jq -c --arg t "$title" --arg p "$prefix" --arg d "$description" --arg min "P${RETENTION_DAYS}D" \
       --arg max "P$((RETENTION_DAYS + 5))D" '
       .index_sets[] | select(.default == true)
       | del(.id, .default, .can_be_default) | .title = $t | .index_prefix = $p
-      | .description = "Logs do sistema legado (retenção limitada por LGPD)."
+      | .description = $d
       | .creation_date = (now | todate)
       | .rotation_strategy.index_lifetime_min = $min | .rotation_strategy.index_lifetime_max = $max
       | .data_tiering.index_lifetime_min = $min | .data_tiering.index_lifetime_max = $max')"
@@ -212,7 +212,8 @@ wait_for_graylog
 ensure_input "GELF TCP (aplicações)" "org.graylog2.inputs.gelf.tcp.GELFTCPInput"
 ensure_input "GELF UDP (Docker logging driver)" "org.graylog2.inputs.gelf.udp.GELFUDPInput"
 
-legado_index="$(ensure_index_set "Legado" "legado")"
+legado_index="$(ensure_index_set "Legado" "legado" "Logs do sistema legado (retenção limitada por LGPD).")"
+sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e do seu PostgreSQL (retenção limitada).")"
 
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$rule"; done
 pipeline_id="$(ensure_pipeline "Legado - enriquecimento" "$(cat <<'EOF'
@@ -220,6 +221,7 @@ pipeline "Legado - enriquecimento"
 stage 0 match pass
 rule "docker: service_name a partir da tag"
 rule "docker: nível real pelo conteúdo"
+rule "sonarqube: nível real pelo conteúdo"
 stage 1 match pass
 rule "nginx: campos do access log JSON"
 stage 2 match pass
@@ -251,6 +253,10 @@ browser_stream="$(ensure_stream "Legado - Navegador" "Eventos do frontend (erros
 security_stream="$(ensure_stream "Legado - Segurança" "Auditoria: login, logout, tokens recusados, rate limit (OWASP A09)." "$legado_index" false \
   "[$(stream_rule service_name 1 legado-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access token rejected|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
 
+# SonarQube (projeto ../sonarqube): servidor e PostgreSQL pelo Docker GELF driver.
+sonarqube_stream="$(ensure_stream "SonarQube - Infra" "Servidor SonarQube e seu PostgreSQL." "$sonarqube_index" true \
+  "[$(stream_rule service_name 2 '^sonarqube(-db)?$')]")"
+
 # Todos os alertas ignoram as mensagens sintéticas do smoke test (campo smoke_test="true"; o GELF descarta
 # campos booleanos, por isso o valor é texto), para não gerar alarme falso.
 REAL="NOT smoke_test:true"
@@ -267,5 +273,7 @@ ensure_event "Legado: API lenta" "Mais de 10 requisições acima de 1 s em 5 min
   "$api_stream" "${REAL} AND Elapsed:>1000" 10 5
 ensure_event "Legado: erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy." 2 \
   "$web_stream" "${REAL} AND http_status:>=500" 0 5
+ensure_event "SonarQube: erros no servidor" "Qualquer Error/Critical no SonarQube ou no seu PostgreSQL nos últimos 5 minutos." 2 \
+  "$sonarqube_stream" "${REAL} AND level:<=3" 0 5
 
-log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream})"
+log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream})"

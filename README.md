@@ -2,7 +2,7 @@
 
 Graylog 7.2 + OpenSearch 3.7 + MongoDB 8.0 em Docker, **provisionado automaticamente**: inputs GELF, retenção,
 pipeline de enriquecimento com mascaramento de dados pessoais, streams e alertas. Os projetos do workspace (a
-começar pelo [legado](../legado)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
+começar pelo [legado](../legado) e o [sonarqube](../sonarqube)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
 
 ## Como subir
 
@@ -22,9 +22,10 @@ A primeira subida leva cerca de 1 a 2 minutos (o OpenSearch e o Graylog iniciali
 |---|---|
 | Inputs | **GELF TCP 12201** (aplicações, ex.: Serilog) e **GELF UDP 12201** (Docker logging driver) |
 | Index set `Legado` | Prefixo `legado`, rotação otimizada por tempo, **retenção `LOG_RETENTION_DAYS` (30 dias)** |
-| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) → campos `http_*` do access log JSON do nginx → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento de e-mail e CPF** (LGPD) |
-| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit) |
-| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; API lenta (> 10 requisições acima de 1 s); 5xx no nginx |
+| Index set `SonarQube` | Prefixo `sonarqube`, mesma retenção `LOG_RETENTION_DAYS` |
+| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube/PostgreSQL (nível lido do texto) → campos `http_*` do access log JSON do nginx → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento de e-mail e CPF** (LGPD) |
+| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube) |
+| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; API lenta (> 10 requisições acima de 1 s); 5xx no nginx; erros no SonarQube |
 
 As regras de pipeline ficam em [`provisioning/rules/`](provisioning/rules). Para alterar, edite o `.rule` e rode
 `docker compose run --rm provisioner`; a regra é atualizada no Graylog. Regras de **streams** e consultas/limiares de
@@ -51,7 +52,7 @@ Veja a integração completa no `docker-compose.graylog.yml` do legado.
 | `GRAYLOG_ROOT_PASSWORD_SHA2` | Sim | SHA-256 da senha acima (`printf '%s' "<senha>" \| sha256sum`) |
 | `MONGODB_PASSWORD` | Sim | Senha do MongoDB (rede interna) |
 | `GRAYLOG_TIMEZONE` | Não | Fuso da UI (padrão `America/Sao_Paulo`) |
-| `LOG_RETENTION_DAYS` | Não | Retenção do index set do legado em dias (padrão 30) |
+| `LOG_RETENTION_DAYS` | Não | Retenção dos index sets (legado e SonarQube) em dias (padrão 30) |
 | `OPENSEARCH_HEAP` | Não | Heap da JVM do OpenSearch (padrão `1g`) |
 
 O `scripts/generate-env.sh` preenche tudo. O `.env` está no `.gitignore`, e o [`.env.example`](.env.example) só
