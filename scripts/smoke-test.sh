@@ -68,6 +68,14 @@ bad_json="$(jq -nc --arg id "${RUN_ID}-502" '{request_id: $id, correlation_id: $
 jq -nc --arg m "$bad_json" '{version: "1.1", _smoke_test: "true", host: "legado-web", short_message: $m, level: 6, _tag: "legado-web"}' \
   | nc -u -w 1 "$GELF_HOST" 12201
 
+# 6) SonarQube: tudo sai no stdout (level 6); o nível real vem do texto.
+jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqube", level: 6, _tag: "sonarqube",
+  short_message: ("2026.11.09 00:00:00 ERROR web[][o.s.s.SmokeTest] failure " + $id)}' | nc -u -w 1 "$GELF_HOST" 12201
+
+# 7) PostgreSQL do SonarQube: tudo sai no stderr (level 3), mas "LOG:" é informativo.
+jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqube-db", level: 3, _tag: "sonarqube-db",
+  short_message: ("2026-11-09 00:00:00.000 UTC [63] LOG:  checkpoint starting: " + $id)}' | nc -u -w 1 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -92,6 +100,15 @@ check "Evento do navegador (forjável) fora de 'Legado - Segurança'" "$(jq '(.s
 
 error_message="$(find_message "http_correlation_id:${RUN_ID}-502")"
 check "nginx 502 vira erro e entra em 'Legado - Erros'" "$(jq '.level_name == "error" and ((.streams // []) | index("Legado - Erros") != null)' <<<"$error_message")"
+
+sonarqube_message="$(find_message "service_name:sonarqube AND message:\"failure ${RUN_ID}\"")"
+check "SonarQube: 'ERROR' no stdout vira erro e vai para 'SonarQube - Infra'" \
+  "$(jq '.level_name == "error" and ((.streams // []) | index("SonarQube - Infra") != null)' <<<"$sonarqube_message")"
+check "SonarQube fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$sonarqube_message")"
+
+postgres_message="$(find_message "service_name:sonarqube-db AND message:\"checkpoint starting: ${RUN_ID}\"")"
+check "PostgreSQL do SonarQube: 'LOG:' no stderr vira information em 'SonarQube - Infra'" \
+  "$(jq '.level_name == "information" and ((.streams // []) | index("SonarQube - Infra") != null)' <<<"$postgres_message")"
 
 echo
 if [[ "$failures" -gt 0 ]]; then

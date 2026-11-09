@@ -1,0 +1,14 @@
+rule "sonarqube: nível real pelo conteúdo"
+when
+  has_field("tag") && regex("^sonarqube(-db)?$", to_string($message.tag)).matches == true
+  && regex("^\\S+ \\S+ (?:UTC \\[\\d+\\] )?(TRACE|DEBUG\\d?|INFO|LOG|NOTICE|WARN|WARNING|ERROR|FATAL|PANIC):? ", to_string($message.message)).matches == true
+then
+  // O SonarQube escreve tudo no stdout (o Docker marca level 6) e o PostgreSQL escreve tudo no stderr (level 3).
+  // O nível real vem do texto: "2026.11.09 14:04:21 WARN  web[...]" ou "2026-11-09 14:14:26.911 UTC [63] LOG:  ...".
+  let found = regex("^\\S+ \\S+ (?:UTC \\[\\d+\\] )?(TRACE|DEBUG\\d?|INFO|LOG|NOTICE|WARN|WARNING|ERROR|FATAL|PANIC):? ", to_string($message.message));
+  let levels = {
+    `TRACE`: 7, `DEBUG`: 7, `DEBUG1`: 7, `DEBUG2`: 7, `DEBUG3`: 7, `DEBUG4`: 7, `DEBUG5`: 7,
+    `INFO`: 6, `LOG`: 6, `NOTICE`: 5, `WARN`: 4, `WARNING`: 4, `ERROR`: 3, `FATAL`: 2, `PANIC`: 0
+  };
+  set_field("level", to_long(levels[to_string(found["0"])], 6));
+end
