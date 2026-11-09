@@ -1,0 +1,103 @@
+# Graylog (logs centralizados) para os projetos do C:\Workspace: mongodb + opensearch + graylog + provisioner.
+# Uso: ./scripts/generate-env.sh && docker compose up -d     (UI: http://localhost:9000)
+# Outros projetos se conectam pela rede Docker "observability" (GELF TCP/UDP em graylog:12201).
+name: graylog
+
+services:
+  mongodb:
+    # MongoDB 8.0.34 (Graylog 7.2 suporta 7.x a 8.2.x). Fixado por digest (OWASP A03).
+    image: mongo:8.0.34@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: graylog
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:?defina MONGODB_PASSWORD no .env}
+    volumes:
+      - mongodb-data:/data/db
+    networks: [graylog-internal]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  opensearch:
+    # OpenSearch 3.7.0 (máximo suportado pelo Graylog 7.2). Fixado por digest.
+    image: opensearchproject/opensearch:3.7.0@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: "true"
+      action.auto_create_index: "false"
+      OPENSEARCH_JAVA_OPTS: "-Xms${OPENSEARCH_HEAP:-1g} -Xmx${OPENSEARCH_HEAP:-1g}"
+      # Plugin de segurança desligado: o OpenSearch só é alcançável pela rede interna do compose (ADR-0001).
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks: [graylog-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  graylog:
+    # Graylog 7.2.2. Fixado por digest.
+    image: graylog/graylog:7.2.2@sha256:d4cf618fa0b1d44f639e5fe37c77a1b332f74ae69bd6d77f2b9b94bb2f2e067d
+    depends_on:
+      mongodb: { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+    entrypoint: ["/usr/bin/tini", "--", "wait-for-it", "opensearch:9200", "--", "/docker-entrypoint.sh"]
+    environment:
+      GRAYLOG_NODE_ID_FILE: /usr/share/graylog/data/data/node-id
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
+      GRAYLOG_HTTP_EXTERNAL_URI: http://localhost:9000/
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:?defina GRAYLOG_PASSWORD_SECRET no .env}
+      GRAYLOG_ROOT_PASSWORD_SHA2: ${GRAYLOG_ROOT_PASSWORD_SHA2:?defina GRAYLOG_ROOT_PASSWORD_SHA2 no .env}
+      GRAYLOG_ROOT_TIMEZONE: ${GRAYLOG_TIMEZONE:-America/Sao_Paulo}
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:9200
+      GRAYLOG_MONGODB_URI: mongodb://graylog:${MONGODB_PASSWORD}@mongodb:27017/graylog?authSource=admin
+      # Mantém 30 dias por padrão nos índices (o index set do provisionamento define a retenção real).
+      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: "30"
+    ports:
+      # Publicados só em localhost: UI/API e GELF (TCP e UDP) para quem roda fora do Docker.
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:12201:12201/tcp"
+      - "127.0.0.1:12201:12201/udp"
+    volumes:
+      - graylog-data:/usr/share/graylog/data
+    networks: [graylog-internal, observability]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/api/system/lbstatus | grep -q ALIVE"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  provisioner:
+    # Cria/atualiza (idempotente) inputs, index set, streams, pipeline e alertas pela API REST do Graylog.
+    build: ./provisioning
+    depends_on:
+      graylog: { condition: service_healthy }
+    environment:
+      GRAYLOG_URL: http://graylog:9000
+      GRAYLOG_ADMIN_USER: admin
+      GRAYLOG_ADMIN_PASSWORD: ${GRAYLOG_ROOT_PASSWORD:?defina GRAYLOG_ROOT_PASSWORD no .env}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+    networks: [graylog-internal]
+    restart: "no"
+
+networks:
+  graylog-internal: {}
+  # Rede compartilhada com nome fixo: outros projetos entram com "external: true".
+  observability:
+    name: observability
+
+volumes:
+  mongodb-data:
+  opensearch-data:
+  graylog-data:

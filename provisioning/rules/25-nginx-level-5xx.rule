@@ -1,0 +1,7 @@
+rule "nginx: 5xx é erro"
+when
+  has_field("http_status") && to_long($message.http_status) >= 500
+then
+  // Resposta 5xx servida pelo nginx/API é erro do servidor (vai para o stream de erros e alertas).
+  set_field("level", 3);
+end

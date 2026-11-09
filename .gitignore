@@ -1,0 +1,5 @@
+# Segredos locais (Art. IV.4)
+.env
+# IDE
+.vs/
+.idea/

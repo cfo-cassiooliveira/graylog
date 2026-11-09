@@ -1,0 +1,10 @@
+rule "nginx: campos do access log JSON"
+when
+  to_string($message.service_name) == "legado-web" && starts_with(to_string($message.message), "{")
+then
+  // O nginx loga cada requisição em JSON; os campos viram http_* pesquisáveis (status, latência, rota...).
+  let access = parse_json(to_string($message.message));
+  set_fields(fields: to_map(access), prefix: "http_");
+  set_field("message", concat(concat(to_string($message.http_method), " "),
+    concat(concat(to_string($message.http_path), " -> "), to_string($message.http_status))));
+end

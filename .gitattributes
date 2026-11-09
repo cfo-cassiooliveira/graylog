@@ -1,0 +1,10 @@
+# Fim de linha LF em todo o repositório (alinhado ao .editorconfig), independente do core.autocrlf da máquina:
+# evita CRLF em scripts e configs usados dentro dos containers Linux.
+* text=auto eol=lf
+
+# Binários: sem conversão.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

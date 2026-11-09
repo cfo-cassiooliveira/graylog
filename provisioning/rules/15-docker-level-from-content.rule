@@ -1,0 +1,13 @@
+rule "docker: nível real pelo conteúdo"
+when
+  has_field("tag") && to_long($message.level) == 3
+  && regex("\\[(debug|info|notice|warn|error|crit|alert|emerg)\\]", to_string($message.message)).matches == true
+then
+  // O Docker GELF driver marca TODO o stderr como level 3 (erro). Serviços como o nginx escrevem avisos e
+  // notificações no stderr; o nível real vem do próprio texto ("[notice]", "[warn]"...).
+  let found = regex("\\[(debug|info|notice|warn|error|crit|alert|emerg)\\]", to_string($message.message));
+  let levels = {
+    `debug`: 7, `info`: 6, `notice`: 5, `warn`: 4, `error`: 3, `crit`: 2, `alert`: 1, `emerg`: 0
+  };
+  set_field("level", to_long(levels[to_string(found["0"])], 3));
+end

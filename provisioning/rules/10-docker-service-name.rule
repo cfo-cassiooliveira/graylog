@@ -1,0 +1,7 @@
+rule "docker: service_name a partir da tag"
+when
+  has_field("tag") && !has_field("service_name")
+then
+  // Containers que logam pelo Docker GELF driver trazem a "tag" do compose; ela vira o service_name comum.
+  set_field("service_name", to_string($message.tag));
+end

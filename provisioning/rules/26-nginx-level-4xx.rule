@@ -1,0 +1,7 @@
+rule "nginx: 4xx é aviso"
+when
+  has_field("http_status") && to_long($message.http_status) >= 400 && to_long($message.http_status) < 500
+then
+  // 4xx é erro do cliente (ex.: 401 de token recusado): aviso, não erro do servidor.
+  set_field("level", 4);
+end

@@ -1,0 +1,11 @@
+rule "nível: nome legível"
+when
+  has_field("level")
+then
+  // Níveis syslog do GELF (0-7) em texto, para filtros e dashboards mais legíveis.
+  let names = {
+    `0`: "emergency", `1`: "alert", `2`: "critical", `3`: "error",
+    `4`: "warning", `5`: "notice", `6`: "information", `7`: "debug"
+  };
+  set_field("level_name", to_string(names[to_string($message.level)], "unknown"));
+end
