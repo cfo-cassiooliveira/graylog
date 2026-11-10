@@ -1,4 +1,4 @@
-# Graylog — logs centralizados do C:\Workspace
+# Graylog — logs centralizados
 
 Graylog 7.2 + OpenSearch 3.7 + MongoDB 8.0 em Docker, **provisionado automaticamente**: inputs GELF, retenção,
 pipeline de enriquecimento com mascaramento de dados pessoais, streams e alertas. Os projetos do workspace (a
