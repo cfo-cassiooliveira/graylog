@@ -1,0 +1,17 @@
+rule "keycloak: campos do log JSON do servidor"
+when
+  has_field("tag") && to_string($message.tag) == "keycloak-server"
+  && starts_with(to_string($message.message), "{")
+then
+  // O Keycloak escreve JSON no stdout (KC_LOG_CONSOLE_OUTPUT=json) e o Docker marca tudo como level 6.
+  // Extrai o nível real, o logger e o texto; o mascaramento LGPD (estágio 3) roda depois, sobre o texto extraído.
+  let json = parse_json(to_string($message.message));
+  let fields = select_jsonpath(json, {
+    level: "$.level", logger: "$.loggerName", text: "$.message", thread: "$.threadName"
+  });
+  let levels = { `TRACE`: 7, `DEBUG`: 7, `INFO`: 6, `WARN`: 4, `ERROR`: 3, `FATAL`: 2 };
+  set_field("level", to_long(levels[to_string(fields.level)], 6));
+  set_field("logger", to_string(fields.logger));
+  set_field("thread", to_string(fields.thread));
+  set_field("message", to_string(fields.text, to_string($message.message)));
+end

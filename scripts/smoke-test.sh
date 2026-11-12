@@ -30,7 +30,7 @@ find_message() {
     local result
     result="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "$query" '{
       query: $q, timerange: {type: "relative", range: 600}, size: 1,
-      fields: ["message", "service_name", "streams", "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test"] }')")"
+      fields: ["message", "service_name", "streams", "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -76,6 +76,19 @@ jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqub
 jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqube-db", level: 3, _tag: "sonarqube-db",
   short_message: ("2026-11-09 00:00:00.000 UTC [63] LOG:  checkpoint starting: " + $id)}' | nc -u -w 1 "$GELF_HOST" 12201
 
+# 8) Keycloak: auditoria via GELF HTTP (como o listener workspace-audit), que precisa de 202 para não usar o fallback.
+keycloak_http_status="$(jq -nc --arg id "$RUN_ID" '{
+  version: "1.1", _smoke_test: "true", host: "keycloak", level: 4, _service_name: "keycloak", _log_source: "audit",
+  short_message: ("Keycloak user event LOGIN_ERROR failed: invalid_user_credentials " + $id), _kind: "user",
+  _type: "LOGIN_ERROR", _user_id: ("user-" + $id), _error: "invalid_user_credentials", _event_id: $id }' \
+  | curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "http://${GELF_HOST}:12202/gelf")"
+
+# 9) Servidor Keycloak: JSON no stdout (KC_LOG_CONSOLE_OUTPUT=json) pelo Docker GELF driver, com e-mail no texto.
+keycloak_json="$(jq -nc --arg id "$RUN_ID" '{timestamp: "2026-11-12T00:00:00Z", loggerName: "org.keycloak.services",
+  level: "ERROR", message: ("smoke failure " + $id + " for ana.souza@exemplo.com"), threadName: "executor-thread-1"}')"
+jq -nc --arg m "$keycloak_json" '{version: "1.1", _smoke_test: "true", host: "keycloak", short_message: $m, level: 6, _tag: "keycloak-server"}' \
+  | nc -u -w 1 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -109,6 +122,20 @@ check "SonarQube fora dos streams do legado" "$(jq '(.streams // []) | index("Le
 postgres_message="$(find_message "service_name:sonarqube-db AND message:\"checkpoint starting: ${RUN_ID}\"")"
 check "PostgreSQL do SonarQube: 'LOG:' no stderr vira information em 'SonarQube - Infra'" \
   "$(jq '.level_name == "information" and ((.streams // []) | index("SonarQube - Infra") != null)' <<<"$postgres_message")"
+
+check "Keycloak: input GELF HTTP confirma a gravação (202)" "$([[ "$keycloak_http_status" == "202" ]] && echo true || echo false)"
+keycloak_audit_message="$(find_message "service_name:keycloak AND event_id:${RUN_ID}")"
+check "Keycloak: auditoria vai para 'Keycloak - Auditoria' com o id técnico do usuário" \
+  "$(jq --arg u "user-${RUN_ID}" '.user_id == $u and .type == "LOGIN_ERROR" and .level_name == "warning"
+    and ((.streams // []) | index("Keycloak - Auditoria") != null)' <<<"$keycloak_audit_message")"
+
+keycloak_server_message="$(find_message "service_name:keycloak-server AND message:\"smoke failure ${RUN_ID}\"")"
+check "Keycloak: log JSON do servidor tem nível real (error) e logger extraídos, em 'Keycloak - Servidor'" \
+  "$(jq '.level_name == "error" and .logger == "org.keycloak.services"
+    and ((.streams // []) | index("Keycloak - Servidor") != null)' <<<"$keycloak_server_message")"
+check "Keycloak: LGPD mascara e-mail no texto extraído do JSON" \
+  "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("***@***"))' <<<"$keycloak_server_message")"
+check "Keycloak fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$keycloak_server_message")"
 
 echo
 if [[ "$failures" -gt 0 ]]; then
