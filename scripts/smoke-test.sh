@@ -89,6 +89,12 @@ keycloak_json="$(jq -nc --arg id "$RUN_ID" '{timestamp: "2026-11-12T00:00:00Z", 
 jq -nc --arg m "$keycloak_json" '{version: "1.1", _smoke_test: "true", host: "keycloak", short_message: $m, level: 6, _tag: "keycloak-server"}' \
   | nc -u -w 1 "$GELF_HOST" 12201
 
+# 10) Listener padrão do Keycloak (org.keycloak.events) com username: tem de ser descartado (LGPD).
+default_events_json="$(jq -nc --arg id "$RUN_ID" '{loggerName: "org.keycloak.events", level: "WARN",
+  message: ("type=\"LOGIN_ERROR\", realmName=\"master\", username=\"usuario." + $id + "\", error=\"user_not_found\"")}')"
+jq -nc --arg m "$default_events_json" '{version: "1.1", _smoke_test: "true", host: "keycloak", short_message: $m, level: 6, _tag: "keycloak-server"}' \
+  | nc -u -w 1 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -136,6 +142,11 @@ check "Keycloak: log JSON do servidor tem nível real (error) e logger extraído
 check "Keycloak: LGPD mascara e-mail no texto extraído do JSON" \
   "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("***@***"))' <<<"$keycloak_server_message")"
 check "Keycloak fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$keycloak_server_message")"
+# Enviada junto com a mensagem acima: se aquela já foi indexada, esta já passou pelo pipeline (e foi descartada).
+dropped_count="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "\"usuario.${RUN_ID}\"" \
+  '{query: $q, timerange: {type: "relative", range: 600}, size: 1}')" | jq '.datarows | length')"
+check "Keycloak: eventos do listener padrão (com username) são descartados (LGPD)" \
+  "$([[ "$keycloak_server_message" != "{}" && "$dropped_count" == "0" ]] && echo true || echo false)"
 
 echo
 if [[ "$failures" -gt 0 ]]; then

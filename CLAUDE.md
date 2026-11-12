@@ -24,6 +24,10 @@ docs/adr/                 decisões
 - Toda configuração do Graylog entra pelo `provision.sh` (nunca só pela UI): ele cria e **sincroniza** regras de
   pipeline, regras de streams e alertas. Cada mudança roda o smoke test.
 - Eventos `log_source:browser` são forjáveis (endpoint anônimo): nunca na trilha de Segurança nem em alertas de backend.
+- Inputs GELF (inclusive o HTTP 12202) não autenticam o remetente: no ambiente local qualquer container da rede
+  `observability` poderia forjar auditoria. Em produção, input com TLS + autenticação de cliente (mTLS) e rede dedicada.
+- Dados pessoais vindos de logs de terceiros são barrados no pipeline (ex.: logger `org.keycloak.events`), com caso no
+  smoke test provando o descarte.
 - API do Graylog 7: criação de stream e de alerta usa o corpo `{"entity": {...}}`; `lbstatus` responde text/plain.
 - Novo sistema → novos streams e alertas no `provision.sh`, com `service_name` próprio e retenção definida (LGPD).
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**

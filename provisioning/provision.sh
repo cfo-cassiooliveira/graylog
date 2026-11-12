@@ -229,6 +229,7 @@ rule "sonarqube: nível real pelo conteúdo"
 rule "keycloak: campos do log JSON do servidor"
 stage 1 match pass
 rule "nginx: campos do access log JSON"
+rule "keycloak: descartar eventos do listener padrão (LGPD)"
 stage 2 match pass
 rule "nginx: 5xx é erro"
 rule "nginx: 4xx é aviso"
