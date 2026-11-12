@@ -1,0 +1,10 @@
+rule "keycloak: descartar eventos do listener padrão (LGPD)"
+when
+  has_field("tag") && to_string($message.tag) == "keycloak-server"
+  && to_string($message.logger) == "org.keycloak.events"
+then
+  // Defesa em profundidade (LGPD): o listener padrão jboss-logging grava username e IP. O Keycloak do workspace usa o
+  // listener workspace-audit (sem dados pessoais, stream "Keycloak - Auditoria"); se o padrão for reativado por
+  // engano, essas linhas não são indexadas.
+  drop_message();
+end
