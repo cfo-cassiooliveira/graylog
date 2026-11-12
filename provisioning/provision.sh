@@ -38,14 +38,15 @@ wait_for_graylog() {
 }
 
 # ---------------------------------------------------------------- inputs GELF
+# Uso: ensure_input "Título" <tipo> [porta, padrão 12201]
 ensure_input() {
-  local title="$1" type="$2"
+  local title="$1" type="$2" port="${3:-12201}"
   local id
   id="$(api GET /system/inputs | jq -r --arg t "$title" '.inputs[] | select(.title == $t) | .id' | head -1)"
   if [[ -z "$id" ]]; then
-    id="$(api POST /system/inputs "$(jq -nc --arg t "$title" --arg type "$type" '{
+    id="$(api POST /system/inputs "$(jq -nc --arg t "$title" --arg type "$type" --argjson port "$port" '{
       title: $t, type: $type, global: true,
-      configuration: { bind_address: "0.0.0.0", port: 12201, recv_buffer_size: 1048576,
+      configuration: { bind_address: "0.0.0.0", port: $port, recv_buffer_size: 1048576,
                        decompress_size_limit: 8388608, max_message_size: 2097152,
                        use_null_delimiter: true, tcp_keepalive: true, number_worker_threads: 4 } }')" | jq -r '.id')"
     log "input created: ${title}"
@@ -211,9 +212,12 @@ wait_for_graylog
 
 ensure_input "GELF TCP (aplicações)" "org.graylog2.inputs.gelf.tcp.GELFTCPInput"
 ensure_input "GELF UDP (Docker logging driver)" "org.graylog2.inputs.gelf.udp.GELFUDPInput"
+# HTTP responde 202 ao gravar: para quem precisa saber se o log chegou (ex.: auditoria do Keycloak com fallback).
+ensure_input "GELF HTTP (aplicações com confirmação)" "org.graylog2.inputs.gelf.http.GELFHttpInput" 12202
 
 legado_index="$(ensure_index_set "Legado" "legado" "Logs do sistema legado (retenção limitada por LGPD).")"
 sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e do seu PostgreSQL (retenção limitada).")"
+keycloak_index="$(ensure_index_set "Keycloak" "keycloak" "Auditoria e logs do Keycloak (retenção limitada por LGPD).")"
 
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$rule"; done
 pipeline_id="$(ensure_pipeline "Legado - enriquecimento" "$(cat <<'EOF'
@@ -222,6 +226,7 @@ stage 0 match pass
 rule "docker: service_name a partir da tag"
 rule "docker: nível real pelo conteúdo"
 rule "sonarqube: nível real pelo conteúdo"
+rule "keycloak: campos do log JSON do servidor"
 stage 1 match pass
 rule "nginx: campos do access log JSON"
 stage 2 match pass
@@ -256,6 +261,12 @@ security_stream="$(ensure_stream "Legado - Segurança" "Auditoria: login, logout
 # SonarQube (projeto ../sonarqube): servidor e PostgreSQL pelo Docker GELF driver.
 sonarqube_stream="$(ensure_stream "SonarQube - Infra" "Servidor SonarQube e seu PostgreSQL." "$sonarqube_index" true \
   "[$(stream_rule service_name 2 '^sonarqube(-db)?$')]")"
+# Keycloak (projeto ../keycloak): auditoria via GELF HTTP (listener workspace-audit, sem dados pessoais) e
+# servidor/PostgreSQL pelo Docker GELF driver.
+keycloak_audit_stream="$(ensure_stream "Keycloak - Auditoria" "Logins, falhas e ações administrativas (id técnico do usuário, sem dados pessoais)." "$keycloak_index" true \
+  "[$(stream_rule service_name 1 keycloak)]")"
+keycloak_server_stream="$(ensure_stream "Keycloak - Servidor" "Logs do servidor Keycloak e do seu PostgreSQL." "$keycloak_index" true \
+  "[$(stream_rule service_name 2 '^keycloak-(server|db)$')]")"
 
 # Todos os alertas ignoram as mensagens sintéticas do smoke test (campo smoke_test="true"; o GELF descarta
 # campos booleanos, por isso o valor é texto), para não gerar alarme falso.
@@ -275,5 +286,11 @@ ensure_event "Legado: erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/
   "$web_stream" "${REAL} AND http_status:>=500" 0 5
 ensure_event "SonarQube: erros no servidor" "Qualquer Error/Critical no SonarQube ou no seu PostgreSQL nos últimos 5 minutos." 2 \
   "$sonarqube_stream" "${REAL} AND level:<=3" 0 5
+ensure_event "Keycloak: falhas de login em massa" "Mais de 20 logins falhos em 5 minutos (força bruta / credential stuffing)." 3 \
+  "$keycloak_audit_stream" "${REAL} AND type:LOGIN_ERROR" 20 5
+ensure_event "Keycloak: auditoria salva no fallback" "O Graylog ficou indisponível e registros de auditoria foram salvos no arquivo local do Keycloak." 3 \
+  "$keycloak_audit_stream" "${REAL} AND type:AUDIT_FALLBACK_USED" 0 5
+ensure_event "Keycloak: erros no servidor" "Qualquer Error/Critical no Keycloak ou no seu PostgreSQL nos últimos 5 minutos." 2 \
+  "$keycloak_server_stream" "${REAL} AND level:<=3" 0 5
 
-log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream})"
+log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"

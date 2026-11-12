@@ -1,6 +1,6 @@
 # Graylog (logs centralizados) para os projetos do C:\Workspace: mongodb + opensearch + graylog + provisioner.
 # Uso: ./scripts/generate-env.sh && docker compose up -d     (UI: http://localhost:9000)
-# Outros projetos se conectam pela rede Docker "observability" (GELF TCP/UDP em graylog:12201).
+# Outros projetos se conectam pela rede Docker "observability" (GELF TCP/UDP em graylog:12201 e GELF HTTP em graylog:12202).
 name: graylog
 
 services:
@@ -63,10 +63,11 @@ services:
       # Mantém 30 dias por padrão nos índices (o index set do provisionamento define a retenção real).
       GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: "30"
     ports:
-      # Publicados só em localhost: UI/API e GELF (TCP e UDP) para quem roda fora do Docker.
+      # Publicados só em localhost: UI/API e GELF (TCP, UDP e HTTP) para quem roda fora do Docker.
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:12201:12201/tcp"
       - "127.0.0.1:12201:12201/udp"
+      - "127.0.0.1:12202:12202/tcp"
     volumes:
       - graylog-data:/usr/share/graylog/data
     networks: [graylog-internal, observability]
