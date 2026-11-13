@@ -237,6 +237,7 @@ ensure_input "GELF HTTP (aplicações com confirmação)" "org.graylog2.inputs.g
 legado_index="$(ensure_index_set "Legado" "legado" "Logs do sistema legado (retenção limitada por LGPD).")"
 sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e do seu PostgreSQL (retenção limitada).")"
 keycloak_index="$(ensure_index_set "Keycloak" "keycloak" "Auditoria e logs do Keycloak (retenção limitada por LGPD).")"
+cadastro_index="$(ensure_index_set "Cadastro" "cadastro" "Logs do Cadastro (retenção limitada por LGPD).")"
 
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$rule"; done
 pipeline_id="$(ensure_pipeline "Legado - enriquecimento" "$(cat <<'EOF'
@@ -287,6 +288,23 @@ keycloak_audit_stream="$(ensure_stream "Keycloak - Auditoria" "Logins, falhas e 
   "[$(stream_rule service_name 1 keycloak)]")"
 keycloak_server_stream="$(ensure_stream "Keycloak - Servidor" "Logs do servidor Keycloak e do seu PostgreSQL." "$keycloak_index" true \
   "[$(stream_rule service_name 2 '^keycloak-(server|db)$')]")"
+# Migração sob demanda do Legado (spec 001 do cadastro): eventos LEGACY_* e RESET_UNKNOWN_USER da auditoria do
+# Keycloak, com o identificador mascarado (ADR-0007 do keycloak). Também ficam em "Keycloak - Auditoria".
+migration_stream="$(ensure_stream "Identidade - Migração" "Migração do Legado para o Keycloak e tentativas inválidas (login mascarado)." "$keycloak_index" false \
+  "[$(stream_rule service_name 1 keycloak),$(stream_rule type 2 '^(LEGACY_.+|RESET_UNKNOWN_USER)$')]")"
+
+# Cadastro (projeto ../cadastro): BFF (Serilog/GELF TCP) e nginx (Docker GELF driver), mesmo padrão do legado.
+cadastro_api_stream="$(ensure_stream "Cadastro - API" "Logs estruturados da Cadastro.Api (BFF, Serilog/GELF TCP)." "$cadastro_index" true \
+  "[$(stream_rule service_name 1 cadastro-api)]")"
+cadastro_web_stream="$(ensure_stream "Cadastro - Web (nginx)" "Access log JSON do nginx do frontend do Cadastro." "$cadastro_index" true \
+  "[$(stream_rule service_name 1 cadastro-web)]")"
+cadastro_errors_stream="$(ensure_stream "Cadastro - Erros" "Erros e falhas críticas de qualquer serviço do Cadastro." "$cadastro_index" false \
+  "[$(stream_rule service_name 2 '^cadastro-'),$(stream_rule level 4 4)]")"
+cadastro_browser_stream="$(ensure_stream "Cadastro - Navegador" "Eventos do frontend do Cadastro, enviados via API." "$cadastro_index" false \
+  "[$(stream_rule service_name 1 cadastro-api),$(stream_rule log_source 1 browser)]")"
+# Eventos do navegador chegam por endpoint anônimo e podem ser forjados: nunca entram na trilha de segurança.
+cadastro_security_stream="$(ensure_stream "Cadastro - Segurança" "Login, logout, acesso negado, rate limit e cadastro (OWASP A09)." "$cadastro_index" false \
+  "[$(stream_rule service_name 1 cadastro-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access denied|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
 
 # Títulos antigos ("Sistema: assunto") de antes do padrão "<Sistema> - <Assunto>": remove para não duplicar alertas.
 LEGACY_EVENT_TITLES=(
@@ -328,4 +346,17 @@ ensure_event "Keycloak - Auditoria salva no fallback" "O Graylog ficou indispon�
 ensure_event "Keycloak - Erros no servidor" "Qualquer Error/Critical no Keycloak ou no seu PostgreSQL nos últimos 5 minutos." 2 \
   "$keycloak_server_stream" "${REAL} AND level:<=3" 0 5
 
-log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
+ensure_event "Identidade - Tentativas de migração inválidas" "Mais de 30 logins/resets inválidos de usuários fora do Keycloak em 5 minutos (enumeração / credential stuffing)." 3 \
+  "$migration_stream" "${REAL} AND (type:LEGACY_USER_NOT_FOUND OR type:LEGACY_PASSWORD_MISMATCH OR type:LEGACY_ACCOUNT_LOCKED OR type:RESET_UNKNOWN_USER)" 30 5
+ensure_event "Identidade - Legado indisponível" "5 ou mais falhas ao consultar o Legado em 5 minutos: quem ainda não migrou não consegue entrar." 3 \
+  "$migration_stream" "${REAL} AND type:LEGACY_UNAVAILABLE" 4 5
+ensure_event "Identidade - Falha ao marcar migração" "O Legado não registrou uma migração concluída: a conta continua ativa no Legado (reprocessar o PUT)." 2 \
+  "$migration_stream" "${REAL} AND type:LEGACY_MIGRATION_MARK_FAILED" 0 5
+ensure_event "Cadastro - Erros na aplicação" "Qualquer Error/Critical em serviços do Cadastro nos últimos 5 minutos." 3 \
+  "$cadastro_errors_stream" "${REAL} AND NOT log_source:browser" 0 5
+ensure_event "Cadastro - Erros no navegador" "Erros JavaScript ou falhas inesperadas reportadas pelo frontend do Cadastro." 2 \
+  "$cadastro_browser_stream" "${REAL} AND level:<=3" 0 5
+ensure_event "Cadastro - Erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy do Cadastro." 2 \
+  "$cadastro_web_stream" "${REAL} AND http_status:>=500" 0 5
+
+log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
