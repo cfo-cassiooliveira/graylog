@@ -59,7 +59,7 @@ jobs:
       - run: sudo sysctl -w vm.max_map_count=262144
       - run: ./scripts/generate-env.sh
       - run: docker compose up -d --build --wait graylog
-      - name: Provisionamento (duas vezes: prova a idempotência)
+      - name: Provisionamento (duas vezes, prova a idempotência)
         run: docker compose run --rm provisioner && docker compose run --rm provisioner
       - run: docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner
       - name: Logs em caso de falha
