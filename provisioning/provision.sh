@@ -41,9 +41,10 @@ wait_for_graylog() {
 # Uso: ensure_input "Título" <tipo> [porta, padrão 12201]
 ensure_input() {
   local title="$1" type="$2" port="${3:-12201}"
-  local id
+  local id created=false state
   id="$(api GET /system/inputs | jq -r --arg t "$title" '.inputs[] | select(.title == $t) | .id' | head -1)"
   if [[ -z "$id" ]]; then
+    created=true
     id="$(api POST /system/inputs "$(jq -nc --arg t "$title" --arg type "$type" --argjson port "$port" '{
       title: $t, type: $type, global: true,
       configuration: { bind_address: "0.0.0.0", port: $port, recv_buffer_size: 1048576,
@@ -51,11 +52,20 @@ ensure_input() {
                        use_null_delimiter: true, tcp_keepalive: true, number_worker_threads: 4 } }')" | jq -r '.id')"
     log "input created: ${title}"
   fi
-  # Inputs novos podem nascer parados; garante que está rodando.
-  if ! api GET /system/inputstates | jq -e --arg id "$id" '.states[] | select(.id == $id and .state == "RUNNING")' >/dev/null; then
-    api PUT "/system/inputstates/${id}" >/dev/null
-    log "input started: ${title}"
-  fi
+  # O Graylog sobe o input de forma assíncrona. Um segundo start no meio do caminho deixa o GELF TCP quebrado (aceita
+  # a conexão e descarta a mensagem): espera o estado assentar e só inicia o input que estiver de fato parado.
+  for _ in $(seq 1 15); do
+    state="$(input_state "$id")"
+    [[ "$state" == "RUNNING" ]] && return 0
+    [[ "$state" == "STARTING" || ( "$created" == "true" && "$state" == "NONE" ) ]] || break
+    sleep 2
+  done
+  api PUT "/system/inputstates/${id}" >/dev/null
+  log "input started: ${title} (state was ${state})"
+}
+
+input_state() {
+  api GET /system/inputstates | jq -r --arg id "$1" '[.states[] | select(.id == $id) | .state][0] // "NONE"'
 }
 
 # ---------------------------------------------------------------- index set
