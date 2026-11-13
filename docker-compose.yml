@@ -5,8 +5,9 @@ name: graylog
 
 services:
   mongodb:
-    # MongoDB 8.0.34 (Graylog 7.2 suporta 7.x a 8.2.x). Fixado por digest (OWASP A03).
-    image: mongo:8.0.34@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142
+    # MongoDB 8.0.38 (Graylog 7.2 suporta 7.x a 8.2.x). Fixado por digest (OWASP A03).
+    # Mínimo 8.0.35: as versões anteriores param na inicialização em kernel Linux 6.19+ (SERVER-125742).
+    image: mongo:8.0.38@sha256:d97fea17ccb8d004cd137be8dab54d70d0df11be69c9f422aefe4484c8414ab7
     environment:
       MONGO_INITDB_ROOT_USERNAME: graylog
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:?defina MONGODB_PASSWORD no .env}

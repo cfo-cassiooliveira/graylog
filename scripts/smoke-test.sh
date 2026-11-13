@@ -40,6 +40,34 @@ find_message() {
   echo "{}"
 }
 
+# Stack recém-criada (CI): logo após o provisionamento os inputs e o índice podem ainda não estar prontos e o que é
+# enviado nesse intervalo se perde. As verificações só começam quando uma mensagem de cada input (TCP e UDP) é achada.
+wait_for_ingestion() {
+  local tcp_found=false udp_found=false
+  for _ in $(seq 1 45); do
+    [[ "$tcp_found" == "true" ]] || printf '%s\0' "$(jq -nc --arg id "$RUN_ID" \
+      '{version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, short_message: ("warmuptcp " + $id)}')" \
+      | nc -w 3 "$GELF_HOST" 12201 || true
+    [[ "$udp_found" == "true" ]] || jq -nc --arg id "$RUN_ID" \
+      '{version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, short_message: ("warmupudp " + $id)}' \
+      | nc -u -w 1 "$GELF_HOST" 12201 || true
+    sleep 2
+    [[ "$(count_messages "warmuptcp AND \"${RUN_ID}\"")" -gt 0 ]] && tcp_found=true
+    [[ "$(count_messages "warmupudp AND \"${RUN_ID}\"")" -gt 0 ]] && udp_found=true
+    if [[ "$tcp_found" == "true" && "$udp_found" == "true" ]]; then return 0; fi
+  done
+  echo "❌ Graylog não indexou as mensagens de aquecimento em 90 s (TCP: ${tcp_found}, UDP: ${udp_found})"
+  exit 1
+}
+
+count_messages() {
+  api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "$1" \
+    '{query: $q, timerange: {type: "relative", range: 600}, size: 1, fields: ["message"]}')" \
+    | jq '.datarows | length' || echo 0
+}
+
+wait_for_ingestion
+
 # 1) API via GELF TCP (como o Serilog), com e-mail e CPF no texto para testar o mascaramento LGPD.
 printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   version: "1.1", _smoke_test: "true", host: "smoke-test", level: 3,
@@ -147,6 +175,15 @@ dropped_count="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -
   '{query: $q, timerange: {type: "relative", range: 600}, size: 1}')" | jq '.datarows | length')"
 check "Keycloak: eventos do listener padrão (com username) são descartados (LGPD)" \
   "$([[ "$keycloak_server_message" != "{}" && "$dropped_count" == "0" ]] && echo true || echo false)"
+
+# Alertas: padrão de nome do projeto e nenhum alarme disparado por mensagem sintética.
+event_definitions="$(api "${GRAYLOG_URL}/api/events/definitions?per_page=200")"
+check "alertas seguem o padrão '<Sistema> - <Assunto>' (sem títulos antigos 'Sistema: assunto')" \
+  "$(jq '[.event_definitions[] | select(.config.type == "aggregation-v1") | .title]
+    | length > 0 and all(test("^[A-Z][A-Za-z]+ - [A-Z0-9]")) and all(contains(":") | not)' <<<"$event_definitions")"
+check "todo alerta ignora as mensagens do smoke test (NOT smoke_test:true)" \
+  "$(jq '[.event_definitions[] | select(.config.type == "aggregation-v1") | .config.query | startswith("NOT smoke_test:true")]
+    | length > 0 and all' <<<"$event_definitions")"
 
 echo
 if [[ "$failures" -gt 0 ]]; then
