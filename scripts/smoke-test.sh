@@ -91,6 +91,12 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   short_message: ("Browser auth.fake at login-page: Sign-in failed " + $id), _correlation_id: ($id + "-browser") }')" \
   | nc -w 3 "$GELF_HOST" 12201
 
+# 5b) Assinatura da API interna recusada (ADR-0005 do legado): vai para a trilha de segurança.
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 4, _service_name: "legado-api",
+  short_message: "Internal API signature rejected (invalid) for key keycloak-1", _correlation_id: ($id + "-hmac") }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
 # 4) 502 no access log: deve virar erro.
 bad_json="$(jq -nc --arg id "${RUN_ID}-502" '{request_id: $id, correlation_id: $id, method: "GET", path: "/api/v1/users", status: 502}')"
 jq -nc --arg m "$bad_json" '{version: "1.1", _smoke_test: "true", host: "legado-web", short_message: $m, level: 6, _tag: "legado-web"}' \
@@ -143,6 +149,9 @@ check "'[notice]' fora do stream 'Legado - Erros'" "$(jq '(.streams // []) | ind
 
 browser_message="$(find_message "correlation_id:${RUN_ID}-browser")"
 check "Evento do navegador vai para 'Legado - Navegador'" "$(jq '(.streams // []) | index("Legado - Navegador") != null' <<<"$browser_message")"
+signature_message="$(find_message "correlation_id:${RUN_ID}-hmac AND service_name:legado-api")"
+check "Assinatura interna recusada vai para 'Legado - Segurança'" \
+  "$(jq '(.streams // []) | index("Legado - Segurança") != null' <<<"$signature_message")"
 check "Evento do navegador (forjável) fora de 'Legado - Segurança'" "$(jq '(.streams // []) | index("Legado - Segurança") == null' <<<"$browser_message")"
 
 error_message="$(find_message "http_correlation_id:${RUN_ID}-502")"

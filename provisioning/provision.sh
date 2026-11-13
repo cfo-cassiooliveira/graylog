@@ -276,8 +276,8 @@ errors_stream="$(ensure_stream "Legado - Erros" "Erros e falhas críticas de qua
 browser_stream="$(ensure_stream "Legado - Navegador" "Eventos do frontend (erros JS, falhas e operações), enviados via API." "$legado_index" false \
   "[$(stream_rule service_name 1 legado-api),$(stream_rule log_source 1 browser)]")"
 # Eventos do navegador chegam por endpoint anônimo e podem ser forjados: nunca entram na trilha de segurança.
-security_stream="$(ensure_stream "Legado - Segurança" "Auditoria: login, logout, tokens recusados, rate limit (OWASP A09)." "$legado_index" false \
-  "[$(stream_rule service_name 1 legado-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access token rejected|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
+security_stream="$(ensure_stream "Legado - Segurança" "Auditoria: login, logout, tokens recusados, rate limit, assinatura interna recusada (OWASP A09)." "$legado_index" false \
+  "[$(stream_rule service_name 1 legado-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access token rejected|Rate limit exceeded|registered|Internal API signature rejected)'),$(stream_rule log_source 1 browser true)]")"
 
 # SonarQube (projeto ../sonarqube): servidor e PostgreSQL pelo Docker GELF driver.
 sonarqube_stream="$(ensure_stream "SonarQube - Infra" "Servidor SonarQube e seu PostgreSQL." "$sonarqube_index" true \
@@ -333,6 +333,9 @@ ensure_event "Legado - Falhas de autenticação em massa" "Mais de 20 logins fal
   "$security_stream" "${REAL} AND (message:\"Sign-in failed\" OR message:\"Sign-in rejected\" OR message:\"Access token rejected\") AND NOT log_source:browser" 20 5
 ensure_event "Legado - Rate limit acionado" "Algum cliente excedeu o limite de requisições." 2 \
   "$security_stream" "${REAL} AND message:\"Rate limit exceeded\" AND NOT log_source:browser" 0 5
+# API interna de migração (ADR-0005 do legado): só Keycloak e Cadastro assinam; qualquer recusa é ataque ou chave/relógio errado.
+ensure_event "Legado - Assinatura interna recusada" "Chamada à API interna de migração com assinatura recusada (chave desconhecida, expirada, inválida ou reenviada)." 3 \
+  "$security_stream" "${REAL} AND message:\"Internal API signature rejected\" AND NOT log_source:browser" 0 5
 ensure_event "Legado - API lenta" "Mais de 10 requisições acima de 1 s em 5 minutos." 2 \
   "$api_stream" "${REAL} AND Elapsed:>1000" 10 5
 ensure_event "Legado - Erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy." 2 \
