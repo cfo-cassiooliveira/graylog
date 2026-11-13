@@ -148,6 +148,15 @@ dropped_count="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -
 check "Keycloak: eventos do listener padrão (com username) são descartados (LGPD)" \
   "$([[ "$keycloak_server_message" != "{}" && "$dropped_count" == "0" ]] && echo true || echo false)"
 
+# Alertas: padrão de nome do projeto e nenhum alarme disparado por mensagem sintética.
+event_definitions="$(api "${GRAYLOG_URL}/api/events/definitions?per_page=200")"
+check "alertas seguem o padrão '<Sistema> - <Assunto>' (sem títulos antigos 'Sistema: assunto')" \
+  "$(jq '[.event_definitions[] | select(.config.type == "aggregation-v1") | .title]
+    | length > 0 and all(test("^[A-Z][A-Za-z]+ - [A-Z0-9]")) and all(contains(":") | not)' <<<"$event_definitions")"
+check "todo alerta ignora as mensagens do smoke test (NOT smoke_test:true)" \
+  "$(jq '[.event_definitions[] | select(.config.type == "aggregation-v1") | .config.query | startswith("NOT smoke_test:true")]
+    | length > 0 and all' <<<"$event_definitions")"
+
 echo
 if [[ "$failures" -gt 0 ]]; then
   echo "${failures} verificação(ões) falharam (run ${RUN_ID})."

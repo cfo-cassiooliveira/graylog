@@ -207,6 +207,15 @@ ensure_event() {
   log "alert created: ${title}"
 }
 
+# Uso: remove_event "Título" — apaga a definição de alerta com esse título, se existir (idempotente).
+remove_event() {
+  local title="$1" id
+  for id in $(api GET "/events/definitions?per_page=200" | jq -r --arg t "$title" '.event_definitions[] | select(.title == $t) | .id'); do
+    api DELETE "/events/definitions/${id}" >/dev/null
+    log "legacy alert removed: ${title}"
+  done
+}
+
 # ================================================================= execução
 wait_for_graylog
 
@@ -269,29 +278,44 @@ keycloak_audit_stream="$(ensure_stream "Keycloak - Auditoria" "Logins, falhas e 
 keycloak_server_stream="$(ensure_stream "Keycloak - Servidor" "Logs do servidor Keycloak e do seu PostgreSQL." "$keycloak_index" true \
   "[$(stream_rule service_name 2 '^keycloak-(server|db)$')]")"
 
+# Títulos antigos ("Sistema: assunto") de antes do padrão "<Sistema> - <Assunto>": remove para não duplicar alertas.
+LEGACY_EVENT_TITLES=(
+  "Legado: erros na aplicação"
+  "Legado: erros no navegador"
+  "Legado: falhas de autenticação em massa"
+  "Legado: rate limit acionado"
+  "Legado: API lenta"
+  "Legado: erros 5xx no nginx"
+  "SonarQube: erros no servidor"
+  "Keycloak: falhas de login em massa"
+  "Keycloak: auditoria salva no fallback"
+  "Keycloak: erros no servidor"
+)
+for legacy_title in "${LEGACY_EVENT_TITLES[@]}"; do remove_event "$legacy_title"; done
+
 # Todos os alertas ignoram as mensagens sintéticas do smoke test (campo smoke_test="true"; o GELF descarta
 # campos booleanos, por isso o valor é texto), para não gerar alarme falso.
 REAL="NOT smoke_test:true"
 # Alertas de backend ignoram eventos do navegador (forjáveis); esses têm alerta próprio e de menor prioridade.
-ensure_event "Legado: erros na aplicação" "Qualquer Error/Critical em serviços do legado nos últimos 5 minutos." 3 \
+ensure_event "Legado - Erros na aplicação" "Qualquer Error/Critical em serviços do legado nos últimos 5 minutos." 3 \
   "$errors_stream" "${REAL} AND NOT log_source:browser" 0 5
-ensure_event "Legado: erros no navegador" "Erros JavaScript ou falhas inesperadas reportadas pelo frontend." 2 \
+ensure_event "Legado - Erros no navegador" "Erros JavaScript ou falhas inesperadas reportadas pelo frontend." 2 \
   "$browser_stream" "${REAL} AND level:<=3" 0 5
-ensure_event "Legado: falhas de autenticação em massa" "Mais de 20 logins falhos ou tokens recusados em 5 minutos (força bruta / roubo de token)." 3 \
+ensure_event "Legado - Falhas de autenticação em massa" "Mais de 20 logins falhos ou tokens recusados em 5 minutos (força bruta / roubo de token)." 3 \
   "$security_stream" "${REAL} AND (message:\"Sign-in failed\" OR message:\"Sign-in rejected\" OR message:\"Access token rejected\") AND NOT log_source:browser" 20 5
-ensure_event "Legado: rate limit acionado" "Algum cliente excedeu o limite de requisições." 2 \
+ensure_event "Legado - Rate limit acionado" "Algum cliente excedeu o limite de requisições." 2 \
   "$security_stream" "${REAL} AND message:\"Rate limit exceeded\" AND NOT log_source:browser" 0 5
-ensure_event "Legado: API lenta" "Mais de 10 requisições acima de 1 s em 5 minutos." 2 \
+ensure_event "Legado - API lenta" "Mais de 10 requisições acima de 1 s em 5 minutos." 2 \
   "$api_stream" "${REAL} AND Elapsed:>1000" 10 5
-ensure_event "Legado: erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy." 2 \
+ensure_event "Legado - Erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy." 2 \
   "$web_stream" "${REAL} AND http_status:>=500" 0 5
-ensure_event "SonarQube: erros no servidor" "Qualquer Error/Critical no SonarQube ou no seu PostgreSQL nos últimos 5 minutos." 2 \
+ensure_event "SonarQube - Erros no servidor" "Qualquer Error/Critical no SonarQube ou no seu PostgreSQL nos últimos 5 minutos." 2 \
   "$sonarqube_stream" "${REAL} AND level:<=3" 0 5
-ensure_event "Keycloak: falhas de login em massa" "Mais de 20 logins falhos em 5 minutos (força bruta / credential stuffing)." 3 \
+ensure_event "Keycloak - Falhas de login em massa" "Mais de 20 logins falhos em 5 minutos (força bruta / credential stuffing)." 3 \
   "$keycloak_audit_stream" "${REAL} AND type:LOGIN_ERROR" 20 5
-ensure_event "Keycloak: auditoria salva no fallback" "O Graylog ficou indisponível e registros de auditoria foram salvos no arquivo local do Keycloak." 3 \
+ensure_event "Keycloak - Auditoria salva no fallback" "O Graylog ficou indisponível e registros de auditoria foram salvos no arquivo local do Keycloak." 3 \
   "$keycloak_audit_stream" "${REAL} AND type:AUDIT_FALLBACK_USED" 0 5
-ensure_event "Keycloak: erros no servidor" "Qualquer Error/Critical no Keycloak ou no seu PostgreSQL nos últimos 5 minutos." 2 \
+ensure_event "Keycloak - Erros no servidor" "Qualquer Error/Critical no Keycloak ou no seu PostgreSQL nos últimos 5 minutos." 2 \
   "$keycloak_server_stream" "${REAL} AND level:<=3" 0 5
 
 log "done (streams: api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
