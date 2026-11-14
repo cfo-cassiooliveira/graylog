@@ -13,6 +13,7 @@ Graylog local em Docker para receber os logs GELF dos projetos do workspace, com
 docker-compose.yml        mongodb, opensearch, graylog, provisioner; rede externa "observability"
 provisioning/provision.sh provisionamento idempotente via API REST (inputs, index set, pipeline, streams, alertas)
 provisioning/rules/       regras de pipeline versionadas (*.rule)
+provisioning/rules/templates/  modelos das regras LGPD (uma regra gerada por campo das listas LGPD_* do provision.sh)
 scripts/generate-env.sh   gera o .env com segredos aleatórios
 scripts/smoke-test.sh     teste ponta a ponta (ingestão, streams, pipeline, mascaramento LGPD)
 docs/adr/                 decisões
@@ -28,6 +29,13 @@ docs/adr/                 decisões
   `observability` poderia forjar auditoria. Em produção, input com TLS + autenticação de cliente (mTLS) e rede dedicada.
 - Dados pessoais vindos de logs de terceiros são barrados no pipeline (ex.: logger `org.keycloak.events`), com caso no
   smoke test provando o descarte.
+- Dados pessoais são mascarados **na gravação**, nunca só na exibição (ADR-0002): `ana***@gmail`, `mar***`,
+  `***.456.789-**`, `12.3**.***/***1-90`, `11*****4321`.
+- **Regra para quem envia log**: dado pessoal, quando inevitável, chega **só como campo estruturado** com o nome do
+  tipo (`Cpf`, `Cnpj`, `Phone`/`MobilePhone`, `UserName`, `Email`; listas `LGPD_CPF_FIELDS`, `LGPD_CNPJ_FIELDS`,
+  `LGPD_PHONE_FIELDS` e `LGPD_LOGIN_FIELDS`). O pipeline mascara pelo nome do campo e troca o mesmo valor nos textos,
+  sem adivinhar. O reconhecimento por formato nos textos (`LGPD_TEXT_FIELDS`) é só rede de segurança. Nome de campo
+  novo entra na lista do tipo; formato novo muda o modelo em `rules/templates/`. Os dois ganham caso no smoke test.
 - API do Graylog 7: criação de stream e de alerta usa o corpo `{"entity": {...}}`; `lbstatus` responde text/plain.
 - Novo sistema → novos streams e alertas no `provision.sh`, com `service_name` próprio e retenção definida (LGPD).
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**

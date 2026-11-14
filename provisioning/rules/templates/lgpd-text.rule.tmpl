@@ -1,0 +1,34 @@
+rule "LGPD: mascarar dados pessoais em __FIELD__"
+when
+  has_field("__FIELD__")
+then
+  // Modelo: o provision.sh gera uma regra por campo de LGPD_TEXT_FIELDS, trocando __FIELD__ pelo nome do campo.
+  // REDE DE SEGURANÇA (estágio 4, ADR-0002): dado pessoal deve chegar como campo estruturado (Cpf, Phone, UserName...),
+  // e as regras do estágio 3 já trocaram esse valor nos textos pelo tipo do campo. Aqui só se reconhece pelo formato
+  // o que vazou sem campo. O valor é GRAVADO mascarado (nunca só na exibição).
+  // Ordem: e-mail, CNPJ, CPF, celular. 11 dígitos sem pontuação são ambíguos (CPF ou celular) e viram CPF.
+
+  // E-mail -> ana***@gmail: até 3 caracteres (1 se tiver até 3) + "@" + primeiro rótulo do domínio
+  // (mesmo padrão do ADR-0007 do keycloak). Também reconhece "%40" (e-mail dentro de URL).
+  let with_email = regex_replace(
+    pattern: "(?<![A-Za-z0-9._%+-])(?:([A-Za-z0-9._%+-]{3})(?=[A-Za-z0-9._%+-]+(?:@|%40))|([A-Za-z0-9._%+-]))[A-Za-z0-9._%+-]*?(?:@|%40)([A-Za-z0-9-]+)(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}",
+    value: to_string($message.__FIELD__), replacement: "$1$2***@$3");
+
+  // CNPJ formatado, numérico ou alfanumérico (IN RFB 2.229/2024) -> 12.3**.***/***1-90 (3 primeiros e 3 últimos).
+  let with_cnpj = regex_replace(
+    pattern: "(?<![A-Za-z0-9])([A-Z0-9]{2})\\.([A-Z0-9])[A-Z0-9]{2}\\.[A-Z0-9]{3}/[A-Z0-9]{3}([A-Z0-9])-([0-9]{2})(?![A-Za-z0-9])",
+    value: with_email, replacement: "$1.$2**.***/***$3-$4");
+
+  // CPF, com ou sem pontuação -> ***.456.789-** (padrão do governo federal: oculta os 3 primeiros e os 2 dígitos
+  // verificadores; mostrar começo e fim permitiria recalcular o CPF ou completá-lo cruzando com fontes públicas).
+  let with_cpf = regex_replace(
+    pattern: "(?<![A-Za-z0-9])[0-9]{3}\\.?([0-9]{3})\\.?([0-9]{3})-?[0-9]{2}(?![A-Za-z0-9])",
+    value: with_cnpj, replacement: "***.$1.$2-**");
+
+  // Celular (DDD + 9 + 8 dígitos, com ou sem +55 e pontuação) -> 11*****4321 (DDD e 4 últimos).
+  let with_phone = regex_replace(
+    pattern: "(?<![A-Za-z0-9+])(?:\\+?55[ .-]?)?(?:\\(([1-9][0-9])\\) ?|([1-9][0-9])[ .-]?)9[ .-]?[0-9]{4}[ .-]?([0-9]{4})(?![A-Za-z0-9])",
+    value: with_cpf, replacement: "$1$2*****$3");
+
+  set_field("__FIELD__", with_phone);
+end
