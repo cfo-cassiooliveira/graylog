@@ -1,0 +1,21 @@
+rule "LGPD: mascarar CNPJ em __FIELD__"
+when
+  has_field("__FIELD__")
+then
+  // Modelo: o provision.sh gera uma regra por campo de LGPD_CNPJ_FIELDS (troca __FIELD__ pelo nome do campo).
+  // O nome do campo diz o tipo do dado: nada é adivinhado (ADR-0002).
+  // 1) O campo vira 12.3**.***/***1-90 (3 primeiros e 3 últimos; aceita o CNPJ alfanumérico, IN RFB 2.229/2024).
+  //    Valor fora do formato vira *** (nunca fica em claro).
+  let raw = to_string($message.__FIELD__);
+  let stripped = regex_replace(pattern: "[^A-Za-z0-9]", value: raw, replacement: "");
+  let alnum = uppercase(stripped);
+  let formatted = regex_replace(pattern: "^([A-Z0-9]{2})([A-Z0-9])[A-Z0-9]{8}([A-Z0-9])([0-9]{2})$", value: alnum, replacement: "$1.$2**.***/***$3-$4");
+  let masked = regex_replace(pattern: "(?s)^(?![A-Z0-9]{2}\\.[A-Z0-9]\\*\\*\\.\\*\\*\\*/\\*\\*\\*[A-Z0-9]-[0-9]{2}$).*$", value: formatted, replacement: "***");
+  set_field("__FIELD__", masked);
+  // 2) O mesmo valor dentro dos textos vira a máscara (valor exato, só como palavra inteira).
+  let quoted = regex_replace(pattern: "[\\\\^$.|?*+()\\[\\]{}/-]", value: raw, replacement: "\\\\$0");
+  let search_start = concat("(?i)(?<![A-Za-z0-9])", quoted);
+  let search_pattern = concat(search_start, "(?![A-Za-z0-9])");
+  let masked_text = regex_replace(pattern: "[\\\\$]", value: masked, replacement: "\\\\$0");
+__REPLACE_IN_TEXT_FIELDS__
+end

@@ -30,7 +30,8 @@ find_message() {
     local result
     result="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "$query" '{
       query: $q, timerange: {type: "relative", range: 600}, size: 1,
-      fields: ["message", "service_name", "streams", "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type"] }')")"
+      fields: ["message", "full_message", "ExceptionMessage", "StackTrace", "UserName", "Cpf", "Phone", "service_name", "streams",
+        "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -68,11 +69,15 @@ count_messages() {
 
 wait_for_ingestion
 
-# 1) API via GELF TCP (como o Serilog), com e-mail e CPF no texto para testar o mascaramento LGPD.
-printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
+# 1) API via GELF TCP (como o Serilog), com dados pessoais no texto e nos campos que o sink Serilog envia além do
+#    "message" (full_message e os da exceção) para testar o mascaramento LGPD (ADR-0002).
+pii_text="ana.souza@exemplo.com cpf 123.456.789-09 cnpj 12.ABC.345/01DE-35 celular (11) 98765-4321"
+pii_masked="ana***@exemplo cpf ***.456.789-** cnpj 12.A**.***/***E-35 celular 11*****4321"
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" --arg pii "$pii_text" '{
   version: "1.1", _smoke_test: "true", host: "smoke-test", level: 3,
-  short_message: ("api " + $id + " falhou para ana.souza@exemplo.com cpf 123.456.789-09"),
-  _service_name: "legado-api", _correlation_id: $id }')" | nc -w 3 "$GELF_HOST" 12201
+  short_message: ("api " + $id + " falhou para " + $pii), full_message: ("api " + $id + " falhou para " + $pii),
+  _ExceptionMessage: "duplicate key value is (ana.souza@exemplo.com)", _StackTrace: "at Smoke.Test(12345678909)",
+  _UserName: "Maria.Silva", _service_name: "legado-api", _correlation_id: $id }')" | nc -w 3 "$GELF_HOST" 12201
 
 # 2) nginx via GELF UDP (como o Docker logging driver): JSON no "message" e a tag do compose.
 nginx_json="$(jq -nc --arg id "$RUN_ID" '{time: "2026-11-09T00:00:00+00:00", request_id: $id, correlation_id: $id,
@@ -129,14 +134,35 @@ default_events_json="$(jq -nc --arg id "$RUN_ID" '{loggerName: "org.keycloak.eve
 jq -nc --arg m "$default_events_json" '{version: "1.1", _smoke_test: "true", host: "keycloak", short_message: $m, level: 6, _tag: "keycloak-server"}' \
   | nc -u -w 1 "$GELF_HOST" 12201
 
+# 11) Dado pessoal como CAMPO ESTRUTURADO (regra do workspace), como o Serilog grava "{UserName} ... {Cpf} ... {Phone}":
+#     o valor vai no campo e no texto. O tipo vem do nome do campo: "11987654321" é celular, não CPF.
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
+  _correlation_id: ($id + "-typed"), _UserName: "Maria.Silva", _Cpf: "11223366699", _Phone: "11987654321",
+  short_message: ("Cadastro " + $id + " de \"Maria.Silva\" com CPF \"11223366699\" e celular \"11987654321\"") }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
 check "Roteado para o stream 'Legado - API'" "$(jq --arg s "$(stream_id 'Legado - API')" '(.streams // []) | index($s) != null' <<<"$api_message")"
 check "Erro (level 3) também no stream 'Legado - Erros'" "$(jq --arg s "$(stream_id 'Legado - Erros')" '(.streams // []) | index($s) != null' <<<"$api_message")"
 check "Nível legível (level_name=error)" "$(jq '.level_name == "error"' <<<"$api_message")"
-check "LGPD: e-mail mascarado" "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("***@***"))' <<<"$api_message")"
-check "LGPD: CPF mascarado" "$(jq '(.message | contains("123.456.789-09") | not)' <<<"$api_message")"
+check "LGPD: e-mail, CPF, CNPJ e celular gravados mascarados no message" \
+  "$(jq --arg m "$pii_masked" '.message | endswith($m)' <<<"$api_message")"
+check "LGPD: mesmos dados mascarados no full_message" "$(jq --arg m "$pii_masked" '.full_message | endswith($m)' <<<"$api_message")"
+check "LGPD: exceção mascarada (ExceptionMessage e StackTrace)" \
+  "$(jq '.ExceptionMessage == "duplicate key value is (ana***@exemplo)" and .StackTrace == "at Smoke.Test(***.456.789-**)"' <<<"$api_message")"
+check "LGPD: campo de login mascarado (UserName=mar***)" "$(jq '.UserName == "mar***"' <<<"$api_message")"
+check "LGPD: nenhum valor original gravado" \
+  "$(jq 'tostring | (contains("ana.souza") or contains("123.456.789-09") or contains("12345678909")
+    or contains("12.ABC.345/01DE-35") or contains("98765-4321") or contains("Maria.Silva")) | not' <<<"$api_message")"
+
+typed_message="$(find_message "correlation_id:${RUN_ID}-typed")"
+check "LGPD (campo estruturado): campos mascarados pelo tipo (UserName, Cpf, Phone)" \
+  "$(jq '.UserName == "mar***" and .Cpf == "***.233.666-**" and .Phone == "11*****4321"' <<<"$typed_message")"
+check "LGPD (campo estruturado): mesmo valor trocado no texto, celular como celular" \
+  "$(jq '.message | endswith("de \"mar***\" com CPF \"***.233.666-**\" e celular \"11*****4321\"")' <<<"$typed_message")"
 
 web_message="$(find_message "http_correlation_id:${RUN_ID}")"
 check "GELF UDP ingerido e service_name vindo da tag (legado-web)" "$(jq '.service_name == "legado-web"' <<<"$web_message")"
@@ -177,7 +203,7 @@ check "Keycloak: log JSON do servidor tem nível real (error) e logger extraído
   "$(jq '.level_name == "error" and .logger == "org.keycloak.services"
     and ((.streams // []) | index("Keycloak - Servidor") != null)' <<<"$keycloak_server_message")"
 check "Keycloak: LGPD mascara e-mail no texto extraído do JSON" \
-  "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("***@***"))' <<<"$keycloak_server_message")"
+  "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("ana***@exemplo"))' <<<"$keycloak_server_message")"
 check "Keycloak fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$keycloak_server_message")"
 # Enviada junto com a mensagem acima: se aquela já foi indexada, esta já passou pelo pipeline (e foi descartada).
 dropped_count="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "\"usuario.${RUN_ID}\"" \

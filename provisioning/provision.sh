@@ -138,11 +138,13 @@ stream_rule() {
 }
 
 # ---------------------------------------------------------------- pipeline
+rule_title() { sed -n 's/^rule "\(.*\)"$/\1/p' <<<"$1" | head -1; }
+
+# Uso: ensure_rule "<código da regra>" — cria ou atualiza (pelo título) a regra de pipeline.
 ensure_rule() {
-  local file="$1"
-  local source title id
-  source="$(cat "$file")"
-  title="$(sed -n 's/^rule "\(.*\)"$/\1/p' "$file" | head -1)"
+  local source="$1"
+  local title id
+  title="$(rule_title "$source")"
   id="$(api GET /system/pipelines/rule | jq -r --arg t "$title" '.[] | select(.title == $t) | .id' | head -1)"
   local body
   body="$(jq -nc --arg s "$source" --arg t "$title" '{title: $t, source: $s, description: $t}')"
@@ -153,6 +155,34 @@ ensure_rule() {
     # Mantém a regra sincronizada com o arquivo versionado.
     api PUT "/system/pipelines/rule/${id}" "$(jq -c --arg id "$id" '. + {id: $id}' <<<"$body")" >/dev/null
   fi
+}
+
+# Uso: render_rule <modelo> <campo> — o código da regra do modelo para um campo: troca __FIELD__ pelo campo e
+# __REPLACE_IN_TEXT_FIELDS__ pela troca do valor mascarado em cada campo de LGPD_TEXT_FIELDS.
+render_rule() {
+  local template="$1" field="$2" text rule_text text_lines=""
+  [[ "$field" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "invalid field name for LGPD rule: ${field}" >&2; exit 1; }
+  for text in "${LGPD_TEXT_FIELDS[@]}"; do
+    text_lines+="  set_field(\"${text}\", regex_replace(pattern: search_pattern, value: to_string(\$message.${text}), replacement: masked_text));"$'\n'
+  done
+  rule_text="$(<"$template")"
+  rule_text="${rule_text//__FIELD__/${field}}"
+  rule_text="${rule_text//__REPLACE_IN_TEXT_FIELDS__/${text_lines%$'\n'}}"
+  printf '%s\n' "$rule_text"
+}
+
+# Uso: remove_stale_rules "<prefixo>" <títulos a manter...> — apaga regras com o prefixo que saíram do script
+# (ex.: campo removido da lista LGPD). Só depois de o pipeline deixar de usá-las.
+remove_stale_rules() {
+  local prefix="$1"; shift
+  local keep id title
+  keep="$(printf '%s\n' "$@" | jq -R . | jq -sc .)"
+  api GET /system/pipelines/rule | jq -r --arg p "$prefix" --argjson keep "$keep" \
+    '.[] | select((.title | startswith($p)) and (.title as $t | $keep | any(.[]; . == $t) | not)) | "\(.id)\t\(.title)"' \
+    | while IFS=$'\t' read -r id title; do
+        api DELETE "/system/pipelines/rule/${id}" >/dev/null
+        log "stale pipeline rule removed: ${title}"
+      done
 }
 
 ensure_pipeline() {
@@ -239,8 +269,43 @@ sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e
 keycloak_index="$(ensure_index_set "Keycloak" "keycloak" "Auditoria e logs do Keycloak (retenção limitada por LGPD).")"
 cadastro_index="$(ensure_index_set "Cadastro" "cadastro" "Logs do Cadastro (retenção limitada por LGPD).")"
 
-for rule in "$RULES_DIR"/*.rule; do ensure_rule "$rule"; done
-pipeline_id="$(ensure_pipeline "Legado - enriquecimento" "$(cat <<'EOF'
+for rule in "$RULES_DIR"/*.rule; do ensure_rule "$(cat "$rule")"; done
+
+# LGPD (ADR-0002): uma regra de mascaramento por campo, gerada dos modelos em rules/templates/.
+# 1) Campos estruturados (estágio 3): o NOME do campo diz o tipo do dado. O campo é mascarado e o mesmo valor é
+#    trocado pela máscara dentro dos textos, sem adivinhar. É assim que os sistemas devem enviar dados pessoais
+#    (ex.: Serilog "CPF {Cpf}"). Nomes aceitos por tipo:
+LGPD_CPF_FIELDS=(cpf Cpf CPF)
+LGPD_CNPJ_FIELDS=(cnpj Cnpj CNPJ)
+LGPD_PHONE_FIELDS=(phone Phone mobilePhone MobilePhone mobile_phone celular Celular telefone Telefone)
+LGPD_LOGIN_FIELDS=(username user_name UserName Username login Login preferred_username email Email)
+# 2) Textos (estágio 4, rede de segurança): o que vazou sem campo é reconhecido pelo formato. Inclui os campos que o
+#    sink Serilog envia além do "message" (full_message e os da exceção).
+LGPD_TEXT_FIELDS=(message full_message ExceptionMessage StackTrace ClientMessage ClientStack http_path)
+
+lgpd_rule_titles=() lgpd_typed_titles=() lgpd_text_titles=()
+lgpd_generate() { # <modelo> <campos...>: cria as regras e devolve os títulos (um por linha)
+  local template="$1" field rule_source; shift
+  for field in "$@"; do
+    rule_source="$(render_rule "${RULES_DIR}/templates/${template}" "$field")"
+    ensure_rule "$rule_source"
+    rule_title "$rule_source"
+  done
+}
+mapfile -t lgpd_typed_titles < <(
+  lgpd_generate lgpd-cpf.rule.tmpl "${LGPD_CPF_FIELDS[@]}"
+  lgpd_generate lgpd-cnpj.rule.tmpl "${LGPD_CNPJ_FIELDS[@]}"
+  lgpd_generate lgpd-phone.rule.tmpl "${LGPD_PHONE_FIELDS[@]}"
+  lgpd_generate lgpd-login.rule.tmpl "${LGPD_LOGIN_FIELDS[@]}")
+mapfile -t lgpd_text_titles < <(lgpd_generate lgpd-text.rule.tmpl "${LGPD_TEXT_FIELDS[@]}")
+lgpd_rule_titles=("${lgpd_typed_titles[@]}" "${lgpd_text_titles[@]}")
+# Um processo substituído falharia em silêncio (set -e não pega o "< <(...)"): confere que todas foram criadas.
+expected_rules=$(( ${#LGPD_CPF_FIELDS[@]} + ${#LGPD_CNPJ_FIELDS[@]} + ${#LGPD_PHONE_FIELDS[@]} + ${#LGPD_LOGIN_FIELDS[@]} + ${#LGPD_TEXT_FIELDS[@]} ))
+[[ ${#lgpd_rule_titles[@]} -eq $expected_rules ]] || { echo "LGPD rules: expected ${expected_rules}, got ${#lgpd_rule_titles[@]}" >&2; exit 1; }
+LGPD_TYPED_RULES="$(printf 'rule "%s"\n' "${lgpd_typed_titles[@]}")"
+LGPD_TEXT_RULES="$(printf 'rule "%s"\n' "${lgpd_text_titles[@]}")"
+
+pipeline_id="$(ensure_pipeline "Legado - enriquecimento" "$(cat <<EOF
 pipeline "Legado - enriquecimento"
 stage 0 match pass
 rule "docker: service_name a partir da tag"
@@ -255,10 +320,14 @@ rule "nginx: 5xx é erro"
 rule "nginx: 4xx é aviso"
 stage 3 match pass
 rule "nível: nome legível"
-rule "LGPD: mascarar e-mail e CPF"
+${LGPD_TYPED_RULES}
+stage 4 match pass
+${LGPD_TEXT_RULES}
 end
 EOF
 )")"
+# Regras LGPD antigas (ex.: "LGPD: mascarar e-mail e CPF", só do "message") ou de campos retirados da lista.
+remove_stale_rules "LGPD: mascarar" "${lgpd_rule_titles[@]}"
 # "match pass": cada estágio segue para o próximo mesmo sem regra aplicável (senão o mascaramento LGPD seria pulado).
 # Conectado ao stream padrão e executado antes do roteamento: os campos criados aqui já servem às regras dos streams.
 api POST /system/pipelines/connections/to_pipeline "$(jq -nc --arg p "$pipeline_id" --arg s "$DEFAULT_STREAM_ID" \
