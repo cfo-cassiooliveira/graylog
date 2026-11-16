@@ -31,7 +31,7 @@ find_message() {
     result="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "$query" '{
       query: $q, timerange: {type: "relative", range: 600}, size: 1,
       fields: ["message", "full_message", "ExceptionMessage", "StackTrace", "UserName", "Cpf", "Phone", "Cnpj", "Email", "Login", "Celular", "cpf", "cnpj", "email",
-        "cpf_token", "email_token",
+        "cpf_token", "email_token", "Obj_Cpf", "Obj_Cpf_token",
         "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type",
         "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
@@ -159,7 +159,8 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" --arg t "$premasked_text" '{
   _Email: "a***@gmail", _Email_token: "k1-c362504bb56a3e35cc245073244c3da6",
   _cpf: "***.233.666-**", _cpf_token: "k1-b81c27bb5f38080e6ca0ed38b828f262", _cnpj: "12.A**.***/***E-35",
   _email: "ana***@gmail", _email_token: "k1-c362504bb56a3e35cc245073244c3da6", _Login: "jos***",
-  _ClientSource: "/users/ana***@gmail", _ClientMessage: $t, _ClientStack: ("at save (" + $t + ")") }')" \
+  _ClientSource: "/users/ana***@gmail", _ClientMessage: $t, _ClientStack: ("at save (" + $t + ")"),
+  "_Obj.Cpf": "***.456.789-**", _Obj_Cpf_token: "k1-b81c27bb5f38080e6ca0ed38b828f262" }')" \
   | nc -w 3 "$GELF_HOST" 12201
 
 # 13) Valor fora do formato: o campo vira ***. No texto, CPF/CNPJ/telefone com 8+ caracteres também viram *** (origem
@@ -248,6 +249,13 @@ check "LGPD (origem pseudonimizada): campos *_token preservados" \
     and .Phone_token == "k1-412838d1c85d64c0ed202ae3b1546615" and .UserName_token == "k1-c5b5c3feef6c408ecea5b17d95af9793"
     and .Email_token == "k1-c362504bb56a3e35cc245073244c3da6" and .cpf_token == "k1-b81c27bb5f38080e6ca0ed38b828f262"
     and .email_token == "k1-c362504bb56a3e35cc245073244c3da6"' <<<"$premasked_message")"
+check "LGPD (origem pseudonimizada): campo aninhado gravado como Obj_Cpf (máscara) e Obj_Cpf_token (token) ficam como estão" \
+  "$(jq '.Obj_Cpf == "***.456.789-**" and .Obj_Cpf_token == "k1-b81c27bb5f38080e6ca0ed38b828f262"' <<<"$premasked_message")"
+token_search="$(find_message "Cpf_token:\"k1-b81c27bb5f38080e6ca0ed38b828f262\" AND correlation_id:${RUN_ID}-premasked")"
+nested_token_search="$(find_message "Obj_Cpf_token:\"k1-b81c27bb5f38080e6ca0ed38b828f262\" AND correlation_id:${RUN_ID}-premasked")"
+check "Pesquisa por token: Cpf_token:\"<token>\" e Obj_Cpf_token:\"<token>\" (aninhado) acham o evento" \
+  "$(jq -n --arg id "${RUN_ID}-premasked" --argjson a "$token_search" --argjson b "$nested_token_search" \
+    '$a.correlation_id == $id and $b.correlation_id == $id')"
 check "LGPD (origem pseudonimizada): texto com as máscaras prontas fica inalterado" \
   "$(jq --arg t "Pronto ${RUN_ID} ${premasked_text}" '.message == $t' <<<"$premasked_message")"
 check "LGPD (origem pseudonimizada): client-logs já mascarados (ClientSource, ClientMessage, ClientStack) ficam inalterados" \

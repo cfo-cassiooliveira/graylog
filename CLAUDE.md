@@ -43,6 +43,10 @@ docs/adr/                 decisões
   smoke test.
 - API do Graylog 7: criação de stream e de alerta usa o corpo `{"entity": {...}}`; `lbstatus` responde text/plain.
 - Novo sistema → novos streams e alertas no `provision.sh`, com `service_name` próprio e retenção definida (LGPD).
+- Token na origem (ADR-0003): `<Campo>_token` e `Obj_Campo_token` (aninhado: GELF `_Obj.Campo` é gravado `Obj_Campo`) passam
+  intactos; a pesquisa é por `Cpf_token:"<token>"` (smoke: "campo aninhado gravado", "Pesquisa por token"). Não há busca
+  salva "campo LGPD sem token" (não implementada nem coberta). Celular sem DDD: no texto só por troca do valor do campo (smoke "fora do formato"); sem campo, fora do escopo (ADR-0003
+  item 9).
 - Trilha de pesquisas em logs (ADR-0003): stream `Cadastro - Pesquisa em logs (LGPD)` só com `service_name:cadastro-api`
   e `audit_event` `log_search_query_issued`/`log_search_access_denied`, nunca `log_source:browser`.
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**

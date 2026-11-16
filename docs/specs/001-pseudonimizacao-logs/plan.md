@@ -121,8 +121,8 @@ Conferir na tarefa (Context7): ordem enricher × renderização do `message` no 
 | Campo | Regra |
 |---|---|
 | `dataType` | `cpf` \| `cnpj` \| `phone` \| `email` \| `login` |
-| `value` | Obrigatório; validado pelo canônico do tipo |
-| `caseReference` | Obrigatório; `^[A-Za-z0-9._/-]{3,40}$` |
+| `value` | Obrigatório; até 254 caracteres; validado pelo canônico do tipo (`email` exige `@`; `login` usa só o canônico) |
+| `caseReference` | Obrigatório; `^[A-Za-z0-9._/-]{3,40}$` e **menos de 8 dígitos no total** (em qualquer pontuação), para um CPF, CNPJ ou telefone digitado ali não ir em claro à auditoria; use um identificador de chamado sem sequência numérica longa (ex.: `INC-1234`) |
 
 Respostas: 200 `{ dataType, tokens: [{ keyId, token }], graylogQuery }` · 400 Problem Details com `errors` por campo
 (sem eco do valor) · 401 · 403 · 429 · antiforgery inválido 400.
@@ -152,7 +152,7 @@ mesma lista). As listas ficam em `LogSearchFields` (código) com teste que compa
 - Novo stream `Cadastro - Pesquisa em logs (LGPD)`; alertas `Cadastro - Excesso de pesquisas em logs` e `Cadastro - Acessos negados à pesquisa em logs` (> 2 negações do mesmo `investigator_id` em 10 min); o primeiro: > 10 pesquisas de um mesmo `investigator_id` em
   10 min (`NOT smoke_test:true`).
 - Métrica de quantos eventos chegam ao Graylog com campo `LGPD_*` **sem** `*_token` vindos de legado/cadastro (sinal
-  de origem não adaptada): busca salva no README.
+  de origem não adaptada): **não implementada** (sem busca salva; fora do escopo da G03, não coberta pelo smoke).
 
 ## 7. Estratégia de testes
 

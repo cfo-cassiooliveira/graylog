@@ -35,7 +35,7 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     auditoria sintético cai no stream; regra inválida injetada mostra o corpo do 400 (teste do script)
   - Pronto quando: smoke cobre **cada formato e cada campo** citado nos ADR-0002/0003; provisioner 2x sem diff
 
-- [ ] **G03** [GL] — README e CLAUDE.md iguais ao que o smoke comprova · `backend-developer`
+- [x] **G03** [GL] — README e CLAUDE.md iguais ao que o smoke comprova · `backend-developer`
   - Depende de: G02
   - Arquivos: `README.md`, `CLAUDE.md` (preservar a nota `MSYS_NO_PATHCONV`)
   - Conteúdo: ADR-0003 (token na origem, Graylog só máscara), `*_token`, stream de auditoria, celular sem DDD fora do
@@ -95,7 +95,7 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     chaves, fail fast; integração GELF sem valores de entrada; `ArchitectureTests` verdes
   - Pronto quando: build/testes/Quality Gate verdes
 
-- [ ] **C03** [CD] — Endpoint `POST /api/v1/log-search/queries` com auditoria · `backend-developer`
+- [x] **C03** [CD] — Endpoint `POST /api/v1/log-search/queries` com auditoria · `backend-developer`
   - Depende de: C02, K01
   - Arquivos: `Cadastro.Application/LogSearch/GetLogSearchQuery*.cs`, `LogSearchFields.cs`,
     `Cadastro.Api/LogSearch/LogSearchEndpoints.cs`, `BffAuthenticationSetup.cs` (policy `logs:investigate`),

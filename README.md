@@ -60,6 +60,20 @@ logger.LogWarning($"Cadastro recusado para CPF {cpf} e celular {phone}");
 | Telefone | `Phone`, `MobilePhone`, `phone`, `mobilePhone`, `celular`, `telefone`... (`LGPD_PHONE_FIELDS`) |
 | Login ou e-mail | `UserName`, `Email`, `username`, `login`, `email`, `preferred_username`... (`LGPD_LOGIN_FIELDS`) |
 
+### Tokens e pesquisa por titular ([ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md))
+
+O token (`k<id>-<hex>`, HMAC) é gerado **na origem**: o Graylog nunca vê a chave nem o valor em claro, só aplica a
+máscara e a rede de segurança. Cada campo LGPD que chega pseudonimizado vem com `<Campo>_token` (`Cpf_token`,
+`Email_token`...), e ambos passam intactos (smoke: "origem pseudonimizada: campos *_token preservados"). Objeto
+aninhado vira `Obj_Campo` (GELF `_Obj.Campo`) e o token, propriedade de topo `Obj_Campo_token` (smoke: "campo aninhado
+gravado como Obj_Cpf ... e Obj_Cpf_token").
+
+Para pesquisar um titular, use a consulta gerada pelo Cadastro e cole na busca do Graylog, por exemplo
+`Cpf_token:"k1-b81c27bb5f38080e6ca0ed38b828f262"` (smoke: "Pesquisa por token"). A pesquisa fica registrada no
+stream `Cadastro - Pesquisa em logs (LGPD)` e os alertas de excesso e de negação vigiam o uso (smoke: casos
+"Auditoria:" e "alerta de excesso..."/"alerta de acessos negados..."). Evento com campo LGPD sem `*_token` é defeito
+da origem (fica só mascarado); **não há busca salva para isso**, e essa detecção não é coberta pelo smoke.
+
 O pipeline trabalha em duas camadas, com regras geradas uma por campo dos modelos em
 [`provisioning/rules/templates/`](provisioning/rules/templates):
 1. **Pelo campo (estágio 3).** Mascara o campo pelo tipo e troca o mesmo valor em todos os textos, sem adivinhar.
@@ -70,7 +84,7 @@ O pipeline trabalha em duas camadas, com regras geradas uma por campo dos modelo
 2. **Pelo formato (estágio 4, rede de segurança).** Reconhece o que vazou sem campo nos textos (`LGPD_TEXT_FIELDS`:
    `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `RequestPath`, `ClientMessage`, `ClientStack`,
    `ClientSource`, `case_reference` e `http_path`, o único campo de URL do access log do nginx). Inclui e-mail em URL
-   (`%40`) e celular com `+55`. Celular sem DDD no texto livre fica fora (ADR-0003, item 9).
+   (`%40`) e celular com `+55`. Celular sem DDD: no texto só por troca do valor do campo (smoke: "fora do formato ... celular sem DDD trocados por *** no texto"); sem campo, fica fora do escopo (ADR-0003, item 9).
 
 Nome de campo novo entra na lista do seu tipo.
 
@@ -119,7 +133,7 @@ Envia mensagens GELF reais (TCP como o Serilog, UDP como o Docker) e confere: in
 extração dos campos do nginx (legado e Cadastro), `level_name`, a trilha de pesquisas em logs e o **mascaramento
 LGPD** de cada formato (e-mail, inclusive `%40`; login; CPF; CNPJ; celular, inclusive `+55`) pelo campo estruturado
 (`UserName`, `Cpf`, `Cnpj`, `Phone`, `Email`...) e em cada campo de texto de `LGPD_TEXT_FIELDS`; máscara e token prontos
-da origem preservados; valor curto sem corromper texto; nenhum campo de texto vazio criado. Também carrega o
+da origem preservados (inclusive campo aninhado `Obj_Campo`); a pesquisa por `<Campo>_token`; valor curto sem corromper texto; nenhum campo de texto vazio criado. Também carrega o
 `provision.sh` sem executá-lo e confere que o erro 400 do Graylog aparece e que nome de campo inválido é recusado.
 
 ## Segurança
