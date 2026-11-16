@@ -30,7 +30,7 @@ por pessoa autorizada, auditada, e documentação igual ao código nos 4 reposit
 | Perfil | O que pode fazer nesta feature |
 |---|---|
 | Investigador (`log-investigator`, OTP obrigatório) | Gerar a consulta do Graylog para um CPF, CNPJ, telefone, e-mail ou login, informando o motivo |
-| Usuário autenticado sem a role | Nada: recebe 403 e a tentativa é registrada |
+| Usuário autenticado sem a role | Nada: a tela o leva a `/forbidden`; a chamada direta à API recebe 403 e a tentativa é registrada |
 | Operação/Segurança (acesso ao Graylog) | Ler logs (máscara + token) e a trilha de pesquisas no stream de auditoria |
 | Desenvolvedor (só ambiente local) | Gerar a consulta com o script local, usando a chave do `.env` |
 
@@ -99,8 +99,15 @@ Cenário: valor inválido para o tipo
 Cenário: sem permissão
   Dado que entrei sem a role "log-investigator"
   Quando abro /log-search
-  Então vejo "Você não tem permissão para acessar esta página." e o link "Voltar para meu perfil"
-  E a API responde 403 e a tentativa fica registrada
+  Então o guard da rota me leva a /forbidden, onde vejo "Você não tem permissão para acessar esta página." e o link "Voltar para meu perfil"
+  E o menu não mostra "Pesquisa em logs"
+  E uma chamada direta à API responde 403 e a tentativa fica registrada (audit_event=log_search_access_denied)
+
+Cenário: role sem OTP nesta autenticação
+  Dado que entrei como "log-investigator", mas a sessão não tem acr=otp ou o auth_time passou de 5 minutos
+  Quando clico em "Gerar consulta"
+  Então vejo "Confirme sua identidade com o código do autenticador." e o botão "Confirmar com código"
+  E ao confirmar o código volto à tela de pesquisa vazia e gero a consulta (200)
 
 Cenário: limite de pesquisas
   Dado que fiz 30 pesquisas na última hora
@@ -146,7 +153,7 @@ valor e o motivo → "Gerar consulta" → copia a consulta → cola na busca do 
 |---|---|
 | Carregando | Botão "Gerar consulta" desabilitado com spinner; campos bloqueados |
 | Vazio (inicial) | Formulário com dica: "Informe o dado da pessoa e o motivo. O valor não é registrado; só o token e o motivo." |
-| Erro | Validação: foco no primeiro campo inválido + mensagem do campo. Falha geral: "Não foi possível gerar a consulta agora. Tente novamente em instantes." + "Tentar de novo" (dados preservados). 403: tela de sem permissão. 429: mensagem de limite |
+| Erro | Validação: foco no primeiro campo inválido + mensagem do campo. Falha geral: "Não foi possível gerar a consulta agora. Tente novamente em instantes." + "Tentar de novo" (dados preservados). 403 sem a role: a rota leva a `/forbidden` (tela de sem permissão). 403 com a role (OTP ausente ou vencido, janela de 5 min): aviso na própria tela com o texto "Confirme sua identidade com o código do autenticador." e o botão "Confirmar com código", que abre o login com `acr_values=otp`; o valor digitado é descartado e o usuário preenche de novo. 429: mensagem de limite |
 | Sucesso | Cartão com a consulta em fonte monoespaçada, "Copiar consulta" (feedback "Consulta copiada."), lista de chaves usadas e aviso: "A consulta encontra só eventos com o campo *_token (legado e cadastro). Textos antigos e outras fontes têm só a máscara." O campo do valor é limpo |
 
 **Microtextos** (via `$localize`)

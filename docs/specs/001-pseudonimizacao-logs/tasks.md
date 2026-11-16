@@ -109,7 +109,7 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     log de auditoria capturado sem o valor nem a máscara; teste que compara `LogSearchFields` com as listas do ADR-0002
   - Pronto quando: build/testes/Quality Gate verdes
 
-- [ ] **C04** [CD] — Tela "Pesquisa em logs" (`/log-search`) · `frontend-developer`
+- [x] **C04** [CD] — Tela "Pesquisa em logs" (`/log-search`) · `frontend-developer`
   - Depende de: C03
   - Arquivos: `cadastro-frontend/src/app/log-search/*`, `app.routes.ts` (guard de role), menu do usuário
   - Testes inclusos: Vitest (4 estados, validações, valor limpo após sucesso, nada em URL/`localStorage`/`AppLogger`);
@@ -117,13 +117,13 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
   - Pronto quando: **4 estados e microtextos da spec §3b**, verificação visual com zero defeitos na matriz
     mobile/tablet/desktop + varredura de redimensionamento (`frontend.md` §0/§3); lint/test/build verdes
 
-- [ ] **C05** [CD] — Client-logs: máscara do ADR-0002 e `ClientSource` · `backend-developer`
+- [x] **C05** [CD] — Client-logs: máscara do ADR-0002 e `ClientSource` · `backend-developer`
   - Depende de: C02
   - Arquivos: `Cadastro.Api/ClientLogs/ClientLogEndpoints.cs` e testes (não toca arquivos de C04/C06)
   - Mesmo escopo e testes de L02
   - Pronto quando: build/testes/Quality Gate verdes
 
-- [ ] **C06** [CD] — Script local `scripts/log-search-token.sh` (só dev) · `backend-developer`
+- [x] **C06** [CD] — Script local `scripts/log-search-token.sh` (só dev) · `backend-developer`
   - Depende de: C02
   - Arquivos: `scripts/log-search-token.sh`, seção no `README.md` (inclui copiar a chave `k1` para o user-secrets do legado)
   - Testes inclusos: o script reproduz os vetores do plano §2 (`--self-test`); recusa rodar sem `.env`
