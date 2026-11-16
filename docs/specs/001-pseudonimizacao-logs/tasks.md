@@ -20,14 +20,17 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     `UserName=ab` com `message` "tabela abc" → campo `***`, texto intacto; CPF de 10 dígitos → `***`
   - Pronto quando: provisioner 2x sem diff; smoke verde
 
-- [ ] **G02** [GL] — `provision.sh`: campos de texto, comentário do Cadastro, erro 400 e stream de auditoria · `backend-developer`
+- [x] **G02** [GL] — `provision.sh`: campos de texto, comentário do Cadastro, erro 400 e stream de auditoria · `backend-developer`
   - Depende de: G01 (mesmo smoke)
-  - Arquivos: `provisioning/provision.sh`, `scripts/smoke-test.sh`
+  - Arquivos: `provisioning/provision.sh`, `provisioning/rules/20-nginx-json.rule`, `scripts/smoke-test.sh`, `README.md`,
+    `CLAUDE.md`, ADR-0002/0003 e `plan.md` (iguais ao código; o restante do README/CLAUDE.md é a G03)
   - Itens: `LGPD_TEXT_FIELDS` += `ClientSource`, `RequestPath`, `case_reference` e os campos de URL do nginx
     (levantar os `http_*` que o extractor cria a partir do `json_access`); comentário/descrição do stream
     `Cadastro - API` conforme a realidade (Serilog/GELF TCP após C01); `ensure_rule` imprime status e corpo do erro 400
-    do Graylog; stream `Cadastro - Pesquisa em logs (LGPD)` (`service_name:cadastro-api AND audit_event:log_search_query_issued`,
-    índice do Cadastro); alerta "mais de 10 pesquisas do mesmo investigador em 10 min" com `NOT smoke_test:true`
+    do Graylog; access log do `cadastro-web` na regra 20; stream `Cadastro - Pesquisa em logs (LGPD)` (`service_name:cadastro-api`,
+    `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), exclui `log_source:browser`;
+    índice do Cadastro); alertas (todos com `NOT smoke_test:true`): "mais de 10 pesquisas do mesmo investigador em 10 min" e
+    "mais de 2 acessos negados do mesmo usuário em 10 min"
   - Testes inclusos (smoke): e-mail em `ClientSource`/`RequestPath`/`http_path` → `ana***@gmail`; evento de
     auditoria sintético cai no stream; regra inválida injetada mostra o corpo do 400 (teste do script)
   - Pronto quando: smoke cobre **cada formato e cada campo** citado nos ADR-0002/0003; provisioner 2x sem diff
@@ -52,7 +55,7 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     exceção — nenhum campo GELF contém os valores de entrada; subida sem chave falha (fail fast)
   - Pronto quando: `dotnet build -warnaserror`, `dotnet test` e Quality Gate verdes
 
-- [ ] **L02** [LG] — Client-logs: máscara do ADR-0002 e `ClientSource` · `backend-developer`
+- [x] **L02** [LG] — Client-logs: máscara do ADR-0002 e `ClientSource` · `backend-developer`
   - Depende de: L01 (usa o masker)
   - Arquivos: `Legado.Api/ClientLogs/ClientLogEndpoints.cs` e testes
   - Itens: `***@***` → `ana***@gmail`; `ClientSource` sem query string/fragmento e mascarado; CPF/telefone no
@@ -83,10 +86,10 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
     fallback para console sem Graylog
   - Pronto quando: evento real aparece no stream `Cadastro - API`; build/testes/Quality Gate verdes
 
-- [ ] **C02** [CD] — Pseudonimização (porta, HMAC, enricher) e chave local · `backend-developer`
+- [x] **C02** [CD] — Pseudonimização (porta, HMAC, enricher) e chave local · `backend-developer`
   - Depende de: C01
   - Arquivos: `Cadastro.Application/LogSearch/ILogPseudonymizer.cs`, `Cadastro.Infrastructure/Logging/LogPseudonymizer.cs`
-    e `PseudonymizationOptions.cs`, `Cadastro.Api/Logging/PseudonymizationEnricher.cs`, `LoggingSetup.cs`,
+    e `PseudonymizationOptions.cs`, `Cadastro.Api/Common/PseudonymizationEnricher.cs`, `LoggingSetup.cs`,
     `scripts/generate-env.sh` (gera `k1`), `.env.example`
   - Testes inclusos: os mesmos **vetores do plano §2** (tokens idênticos aos do legado), canônicos, inválidos, duas
     chaves, fail fast; integração GELF sem valores de entrada; `ArchitectureTests` verdes
@@ -97,6 +100,10 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
   - Arquivos: `Cadastro.Application/LogSearch/GetLogSearchQuery*.cs`, `LogSearchFields.cs`,
     `Cadastro.Api/LogSearch/LogSearchEndpoints.cs`, `BffAuthenticationSetup.cs` (policy `logs:investigate`),
     `RateLimitPolicies.cs` (`log-search`, 30/h por `sub`), OpenAPI
+  - Contrato do log de auditoria (o stream do Graylog depende dele): campos snake_case `audit_event`, `investigator_id`,
+    `data_type`, `case_reference`, `trace_id` e `tokens` como **texto único** (tokens separados por vírgula, nunca lista: o
+    Cadastro usa `ParseArrayValues=true` e o sink dividiria a lista em `tokens_0`, `tokens_1`...); 403 usa
+    `audit_event=log_search_access_denied` com `investigator_id`, mensagem própria e **sem** `tokens`, `data_type` nem `case_reference`
   - Testes inclusos: unitários do handler (validação por tipo, `caseReference`, OR de chaves e campos, e-mail e login
     com a mesma lista); integração: 200 com vetores, 400 sem eco do valor, 401, 403 registrado, 429, antiforgery;
     log de auditoria capturado sem o valor nem a máscara; teste que compara `LogSearchFields` com as listas do ADR-0002

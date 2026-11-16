@@ -51,7 +51,7 @@ cadastro (C02) DEVE reproduzi-las exatamente.
 `token = "k" + id + "-" + hex(HMAC-SHA256(key, domínio + "|" + canônico))[0..32]` (hex minúsculo).
 Fora do formato: campo = `***`, sem token. Na origem o texto é renderizado das propriedades já trocadas, então também
 sai com `***`. Na rede de segurança do Graylog vale a regra do ADR-0002 (estágio 3): o valor fora do formato é trocado
-por `***` nos textos, exceto o curto (login < 4 caracteres; CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos).
+por `***` nos textos, exceto o curto (login < 4 caracteres; CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos no Graylog, 8 dígitos na origem; ADR-0003 item 10).
 Campos aninhados (`{@Obj}`, dicionários, listas) recebem só a máscara dentro do objeto (GELF `_Obj.Email`, gravado
 pelo Graylog como `Obj_Email`). O token vai como propriedade de topo com o caminho unido por `_` (`Obj_Email_token`,
 `People_0_login_token`), para nunca entrar no texto renderizado. A pesquisa padrão só usa campos de topo.
@@ -88,9 +88,9 @@ Conferir na tarefa (Context7): ordem enricher × renderização do `message` no 
 | Item | Mudança |
 |---|---|
 | Logging (novo) | Serilog + `Serilog.Sinks.Graylog` (GELF TCP, mesmo padrão do `LoggingSetup` do legado: `service_name=cadastro-api`, `TraceContextEnricher`), fallback console; health não muda |
-| `Cadastro.Application/LogSearch/` | `GetLogSearchQuery` (record), `GetLogSearchQueryHandler` (`sealed internal`), porta `ILogPseudonymizer` (`Mask`, `Tokenize` com todas as chaves), `LogSearchDataType` (enum), DTO `LogSearchQueryDto` |
+| `Cadastro.Application/LogSearch/` | `GetLogSearchQuery` (record), `GetLogSearchQueryHandler` (`sealed internal`), porta `ILogPseudonymizer` (`TryPseudonymize`: máscara e token da chave atual juntos, usada pelo enricher; `Tokenize`: tokens com todas as chaves, usado pelo handler da C03), `PersonalDataKind` (enum, existente da C02), DTO `LogSearchQueryDto` |
 | `Cadastro.Infrastructure/Logging/` | `LogPseudonymizer` (HMAC + canônico + máscara; mesma especificação do legado), `PseudonymizationOptions` |
-| `Cadastro.Api/Logging/` | `PseudonymizationEnricher` usando `ILogPseudonymizer` |
+| `Cadastro.Api/Common/` | `PseudonymizationEnricher` usando `ILogPseudonymizer` |
 | `Cadastro.Api/LogSearch/LogSearchEndpoints.cs` | `POST /api/v1/log-search/queries`, policy `logs:investigate` (`RequireRole("log-investigator")`), antiforgery, rate limit `log-search` (30/h por `sub`), log de auditoria |
 | `cadastro-frontend/src/app/log-search/` | Página standalone/OnPush/Signals, rota `/log-search` com guard de role, item de menu condicionado à role |
 | `scripts/log-search-token.sh` | Só dev: lê `LOG_PSEUDONYMIZATION_KEY_K*` do `.env`, imprime tokens e consulta (`openssl`) |
@@ -110,7 +110,7 @@ Conferir na tarefa (Context7): ordem enricher × renderização do `message` no 
 | Item | Mudança |
 |---|---|
 | `rules/templates/lgpd-*.rule.tmpl` | Valor já no formato de máscara → inalterado; campos `*_token` nunca tocados; troca nos textos **só** quando a máscara é válida (nunca com `***`) e login ≥ 4 caracteres |
-| `provision.sh` | `LGPD_TEXT_FIELDS` + `ClientSource`, `RequestPath`, `case_reference` e campos de URL do nginx (`http_path` e outros que o extractor criar — levantar); comentário do Cadastro conforme a realidade após C01; `ensure_rule` imprime o corpo do 400; stream `Cadastro - Pesquisa em logs (LGPD)` (`audit_event:log_search_query_issued`) |
+| `provision.sh` | `LGPD_TEXT_FIELDS` + `RequestPath`, `ClientSource`, `case_reference` (`http_path` já estava: é o único campo de URL do `log_format json_access`, sem query string nem referer); access log do `cadastro-web` interpretado como o do `legado-web` (regra 20); comentário do Cadastro conforme a realidade após C01; erro da API do Graylog (ex.: 400 de regra) impresso com o corpo; stream `Cadastro - Pesquisa em logs (LGPD)` (`service_name:cadastro-api`, `audit_event` `log_search_query_issued` ou `log_search_access_denied`, fora `log_source:browser`; índice do Cadastro, 30 dias) e alerta `Cadastro - Excesso de pesquisas em logs` |
 | `scripts/smoke-test.sh` | Um caso por formato e por campo afirmado nos ADRs; máscara/token prontos preservados; valor curto não corrompe texto; `ClientSource`/`RequestPath`; auditoria no stream |
 | `README.md`, `CLAUDE.md` | Só o que o smoke comprova; referência ao ADR-0003; preservar a nota `MSYS_NO_PATHCONV` já não commitada |
 
@@ -134,7 +134,7 @@ mesma lista). As listas ficam em `LogSearchFields` (código) com teste que compa
 | Campo | Origem | Exemplo |
 |---|---|---|
 | `<Campo>_token` | legado, cadastro | `Cpf_token=k1-b81c27bb5f38080e6ca0ed38b828f262` |
-| `audit_event`, `investigator_id`, `data_type`, `case_reference`, `tokens` | cadastro (pesquisa) | `log_search_query_issued`, `sub` do Keycloak, `cpf`, `INC-1234`, `k1-…` |
+| `audit_event`, `investigator_id`, `data_type`, `case_reference`, `trace_id`, `tokens` | cadastro (pesquisa) | `log_search_query_issued`, `sub` do Keycloak, `cpf`, `INC-1234`, `k1-…,k2-…` (um texto único, separado por vírgula: com `ParseArrayValues=true` uma lista viraria `tokens_0`, `tokens_1`... e quebraria o contrato; o comportamento do sink não foi reconferido na doc nesta tarefa). No 403: `log_search_access_denied`, só com `investigator_id` e `trace_id`, sem `tokens`, `data_type` e `case_reference` |
 
 ## 5. Segurança (STRIDE resumido)
 
@@ -149,7 +149,7 @@ mesma lista). As listas ficam em `LogSearchFields` (código) com teste que compa
 
 ## 6. Observabilidade
 
-- Novo stream `Cadastro - Pesquisa em logs (LGPD)`; alerta opcional: > 10 pesquisas de um mesmo `investigator_id` em
+- Novo stream `Cadastro - Pesquisa em logs (LGPD)`; alertas `Cadastro - Excesso de pesquisas em logs` e `Cadastro - Acessos negados à pesquisa em logs` (> 2 negações do mesmo `investigator_id` em 10 min); o primeiro: > 10 pesquisas de um mesmo `investigator_id` em
   10 min (`NOT smoke_test:true`).
 - Métrica de quantos eventos chegam ao Graylog com campo `LGPD_*` **sem** `*_token` vindos de legado/cadastro (sinal
   de origem não adaptada): busca salva no README.

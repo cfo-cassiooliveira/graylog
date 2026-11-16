@@ -1,0 +1,16 @@
+# Vetores de teste da pseudonimização (ADR-0003, plan.md §2): chave HMAC FICTÍCIA e pública (bytes 00..1f) e tokens calculados com ela; nunca usada em ambiente algum (as chaves reais ficam no .env, gerado por script).
+5320d455404dc8be97a92926e809ce69e0fb67a0:docs/specs/001-pseudonimizacao-logs/plan.md:generic-api-key:136
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:154
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:155
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:156
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:157
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:158
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:159
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:160
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:203
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:203
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:204
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:204
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:205
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:205
+5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:206

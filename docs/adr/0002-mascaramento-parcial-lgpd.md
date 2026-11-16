@@ -46,11 +46,12 @@ problemas:
      valor é trocado pela máscara em todos os textos, como palavra inteira. Por isso `11987654321` num campo `Phone`
      vira `11*****4321`. Valor fora do formato do tipo vira `***`, para nunca ficar em claro, e também é trocado por
      `***` nos textos; só não é trocado nos textos quando é curto: login/e-mail com menos de 4 caracteres e
-     CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos (ADR-0003, item 10), para `api` não corromper `Legado.Api`. Valor que já
+     CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos no Graylog (na origem a contagem é só de dígitos, ADR-0003 item 10) (ADR-0003, item 10), para `api` não corromper `Legado.Api`. Valor que já
      chega no formato de máscara (`***.456.789-**`, `mar***`, `a***@gmail`...) e os campos `<Campo>_token` ficam como
      estão (ADR-0003, item 4).
    - **Estágio 4, pelo formato (rede de segurança).** O que vazou sem campo é reconhecido pelo formato nos textos
-     (`LGPD_TEXT_FIELDS`: `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `http_path`...). Aqui há
+     (`LGPD_TEXT_FIELDS`: `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `RequestPath`, `ClientMessage`,
+     `ClientStack`, `ClientSource`, `case_reference` e `http_path`). Aqui há
      ambiguidade: 11 dígitos sem pontuação podem ser CPF ou celular, e são mascarados como CPF, a máscara que esconde
      mais.
 5. **Fora do escopo**: endereço, cidade/estado, telefone fixo e CNPJ sem pontuação (14 dígitos se confundem com

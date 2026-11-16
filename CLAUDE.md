@@ -15,7 +15,8 @@ provisioning/provision.sh provisionamento idempotente via API REST (inputs, inde
 provisioning/rules/       regras de pipeline versionadas (*.rule)
 provisioning/rules/templates/  modelos das regras LGPD (uma regra gerada por campo das listas LGPD_* do provision.sh)
 scripts/generate-env.sh   gera o .env com segredos aleatórios
-scripts/smoke-test.sh     teste ponta a ponta (ingestão, streams, pipeline, mascaramento LGPD)
+scripts/smoke-test.sh     teste ponta a ponta (ingestão, streams, pipeline, mascaramento LGPD, auditoria; carrega o
+                          provision.sh com "source", que só define as funções, para testar o próprio script)
 docs/adr/                 decisões
 ```
 
@@ -36,12 +37,14 @@ docs/adr/                 decisões
   com o nome do tipo (`Cpf`, `Cnpj`, `Phone`/`MobilePhone`, `UserName`, `Email`; listas `LGPD_CPF_FIELDS`, `LGPD_CNPJ_FIELDS`,
   `LGPD_PHONE_FIELDS` e `LGPD_LOGIN_FIELDS`). O pipeline mascara pelo nome do campo e troca o mesmo valor nos textos,
   sem adivinhar; valor fora do formato vira `***` no campo e nos textos, exceto o curto (login < 4 caracteres,
-  CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos), que não é trocado nos textos; máscara pronta da origem e `<Campo>_token` ficam
+  CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos no Graylog, 8 dígitos na origem; ADR-0003 item 10), que não é trocado nos textos; máscara pronta da origem e `<Campo>_token` ficam
   como estão (ADR-0003). O reconhecimento por formato nos textos (`LGPD_TEXT_FIELDS`) é só rede de segurança. Nome
   de campo novo entra na lista do tipo; formato novo muda o modelo em `rules/templates/`. Os dois ganham caso no
   smoke test.
 - API do Graylog 7: criação de stream e de alerta usa o corpo `{"entity": {...}}`; `lbstatus` responde text/plain.
 - Novo sistema → novos streams e alertas no `provision.sh`, com `service_name` próprio e retenção definida (LGPD).
+- Trilha de pesquisas em logs (ADR-0003): stream `Cadastro - Pesquisa em logs (LGPD)` só com `service_name:cadastro-api`
+  e `audit_event` `log_search_query_issued`/`log_search_access_denied`, nunca `log_source:browser`.
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**
   (idioma do produto, Art. I.3), padrão `<Sistema> - <Assunto>` (ex.: `Legado - Segurança`). Nomes de campos
   (`service_name`, `log_source`, `http_*`), valores de `tag` e mensagens de log do provisionamento → **inglês**.

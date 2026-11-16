@@ -2,7 +2,7 @@
 
 Graylog 7.2 + OpenSearch 3.7 + MongoDB 8.0 em Docker, **provisionado automaticamente**: inputs GELF, retenção,
 pipeline de enriquecimento com mascaramento de dados pessoais, streams e alertas. Os projetos do workspace (a
-começar pelo [legado](../legado), o [sonarqube](../sonarqube) e o [keycloak](../keycloak)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
+começar pelo [legado](../legado), o [cadastro](../cadastro), o [sonarqube](../sonarqube) e o [keycloak](../keycloak)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
 
 ## Como subir
 
@@ -21,16 +21,18 @@ A primeira subida leva cerca de 1 a 2 minutos (o OpenSearch e o Graylog iniciali
 | Item | Detalhe |
 |---|---|
 | Inputs | **GELF TCP 12201** (aplicações, ex.: Serilog), **GELF UDP 12201** (Docker logging driver) e **GELF HTTP 12202** (aplicações que precisam de confirmação: responde 202 ao gravar, ex.: auditoria do Keycloak com fallback) |
-| Index set `Legado` | Prefixo `legado`, rotação otimizada por tempo, **retenção `LOG_RETENTION_DAYS` (30 dias)** |
+| Index set `Legado` | Prefixo `legado`, rotação otimizada por tempo, **retenção `LOG_RETENTION_DAYS`: no mínimo 30 dias, apagado até 5 dias depois (30 a 35 dias)** |
 | Index set `SonarQube` | Prefixo `sonarqube`, mesma retenção `LOG_RETENTION_DAYS` |
 | Index set `Keycloak` | Prefixo `keycloak`, mesma retenção `LOG_RETENTION_DAYS` |
-| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube/PostgreSQL (nível lido do texto); JSON do servidor Keycloak vira `level`, `logger`, `thread` e texto; mensagens do listener padrão do Keycloak (`org.keycloak.events`, com username e IP) são descartadas (LGPD) → campos `http_*` do access log JSON do nginx → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento parcial de dados pessoais** (LGPD, [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md)) |
-| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak) |
-| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; API lenta (> 10 requisições acima de 1 s); 5xx no nginx; erros no SonarQube; Keycloak: falhas de login em massa (> 20 em 5 min), auditoria salva no fallback (Graylog ficou indisponível) e erros no servidor |
+| Index set `Cadastro` | Prefixo `cadastro`, mesma retenção `LOG_RETENTION_DAYS` (inclui a trilha de pesquisas em logs) |
+| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube/PostgreSQL (nível lido do texto); JSON do servidor Keycloak vira `level`, `logger`, `thread` e texto; mensagens do listener padrão do Keycloak (`org.keycloak.events`, com username e IP) são descartadas (LGPD) → campos `http_*` do access log JSON do nginx (`legado-web` e `cadastro-web`) → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento parcial de dados pessoais** (LGPD, [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md)) |
+| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak), `Identidade - Migração`, `Cadastro - API`, `Cadastro - Web (nginx)`, `Cadastro - Erros`, `Cadastro - Navegador`, `Cadastro - Segurança` e `Cadastro - Pesquisa em logs (LGPD)` (trilha de auditoria da pesquisa por token, [ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), com `investigator_id`, `data_type`, `case_reference` e `tokens` (texto único), nunca o valor pesquisado; eventos do navegador ficam fora) |
+| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; API lenta (> 10 requisições acima de 1 s); 5xx no nginx (legado e Cadastro); erros no SonarQube; Keycloak: falhas de login em massa (> 20 em 5 min), auditoria salva no fallback (Graylog ficou indisponível) e erros no servidor; migração para o Keycloak; Cadastro: erros na aplicação e no navegador, excesso de pesquisas em logs (> 10 do mesmo investigador em 10 min) e acessos negados à pesquisa (> 2 do mesmo usuário em 10 min) |
 
 ### Mascaramento de dados pessoais (LGPD)
 
-Os dados são mascarados **na gravação**: o valor original nunca chega ao índice. Decisão e alternativas no
+Os dados são mascarados **na gravação**, nos campos tratados (os das listas `LGPD_*` e os textos de
+`LGPD_TEXT_FIELDS`): campo fora das listas ou formato não previsto passa como chegou. Decisão e alternativas no
 [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md).
 
 | Dado | Exemplo | Gravado como |
@@ -62,11 +64,13 @@ O pipeline trabalha em duas camadas, com regras geradas uma por campo dos modelo
 [`provisioning/rules/templates/`](provisioning/rules/templates):
 1. **Pelo campo (estágio 3).** Mascara o campo pelo tipo e troca o mesmo valor em todos os textos, sem adivinhar.
    Valor fora do formato vira `***` no campo e nos textos (ex.: celular sem DDD `98765-4321`); só o valor curto
-   (login/e-mail com menos de 4 caracteres, CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos) não é trocado nos textos, para
+   (login/e-mail com menos de 4 caracteres, CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos no Graylog (na origem a contagem é só de dígitos, ADR-0003 item 10)) não é trocado nos textos, para
    um login como `api` não corromper `Legado.Api` ou `/api/v1`. Valor que já chega mascarado da
    origem (ADR-0003) e os campos `<Campo>_token` ficam como estão.
 2. **Pelo formato (estágio 4, rede de segurança).** Reconhece o que vazou sem campo nos textos (`LGPD_TEXT_FIELDS`:
-   `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `http_path`...).
+   `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `RequestPath`, `ClientMessage`, `ClientStack`,
+   `ClientSource`, `case_reference` e `http_path`, o único campo de URL do access log do nginx). Inclui e-mail em URL
+   (`%40`) e celular com `+55`. Celular sem DDD no texto livre fica fora (ADR-0003, item 9).
 
 Nome de campo novo entra na lista do seu tipo.
 
@@ -96,7 +100,7 @@ Veja a integração completa no `docker-compose.graylog.yml` do legado.
 | `GRAYLOG_ROOT_PASSWORD_SHA2` | Sim | SHA-256 da senha acima (`printf '%s' "<senha>" \| sha256sum`) |
 | `MONGODB_PASSWORD` | Sim | Senha do MongoDB (rede interna) |
 | `GRAYLOG_TIMEZONE` | Não | Fuso da UI (padrão `America/Sao_Paulo`) |
-| `LOG_RETENTION_DAYS` | Não | Retenção dos index sets (legado, SonarQube e Keycloak) em dias (padrão 30) |
+| `LOG_RETENTION_DAYS` | Não | Retenção dos index sets (legado, SonarQube, Keycloak e Cadastro) em dias (padrão 30) |
 | `OPENSEARCH_HEAP` | Não | Heap da JVM do OpenSearch (padrão `1g`) |
 
 O `scripts/generate-env.sh` preenche tudo. O `.env` está no `.gitignore`, e o [`.env.example`](.env.example) só
@@ -112,13 +116,18 @@ No Git Bash (Windows), prefixe com `MSYS_NO_PATHCONV=1`: sem isso o `--entrypoin
 Windows e o container falha com `exec: "C:/Program": stat C:/Program: no such file or directory`.
 
 Envia mensagens GELF reais (TCP como o Serilog, UDP como o Docker) e confere: ingestão, roteamento para os streams,
-extração dos campos do nginx, `level_name` e o **mascaramento LGPD** de cada formato (e-mail, login, CPF, CNPJ e
-celular) no `message`, no `full_message` e nos campos da exceção.
+extração dos campos do nginx (legado e Cadastro), `level_name`, a trilha de pesquisas em logs e o **mascaramento
+LGPD** de cada formato (e-mail, inclusive `%40`; login; CPF; CNPJ; celular, inclusive `+55`) pelo campo estruturado
+(`UserName`, `Cpf`, `Cnpj`, `Phone`, `Email`...) e em cada campo de texto de `LGPD_TEXT_FIELDS`; máscara e token prontos
+da origem preservados; valor curto sem corromper texto; nenhum campo de texto vazio criado. Também carrega o
+`provision.sh` sem executá-lo e confere que o erro 400 do Graylog aparece e que nome de campo inválido é recusado.
 
 ## Segurança
 
 - Portas publicadas só em `127.0.0.1` (UI 9000, GELF 12201 e 12202). OpenSearch e MongoDB ficam só na rede interna.
 - Segredos só no `.env`. A senha do admin chega ao Graylog apenas como SHA-256.
+- A trilha de auditoria da pesquisa em logs depende de inputs GELF que não autenticam o remetente: quem alcança a rede
+  pode forjar eventos nela. Em produção, input com TLS + mTLS e rede dedicada (ADR-0003, item 7).
 - Retenção limitada e mascaramento parcial de dados pessoais na gravação (LGPD), como defesa em profundidade. Dado
   mascarado parcialmente ainda é dado pessoal: o acesso ao Graylog continua restrito. Os serviços
   continuam proibidos de logar dados pessoais (Art. IV.6).

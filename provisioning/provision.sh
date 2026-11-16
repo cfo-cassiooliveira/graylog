@@ -19,7 +19,14 @@ api() {
   if [[ -n "$body" ]]; then
     args+=(-H "Content-Type: application/json" --data "$body")
   fi
-  curl "${args[@]}" "${GRAYLOG_URL}/api${path}"
+  # Com --fail-with-body o corpo do erro sai no stdout: vai para o stderr, senão quem descarta o retorno (>/dev/null)
+  # esconde o motivo (ex.: 400 com o erro de sintaxe de uma regra de pipeline).
+  local response
+  if ! response="$(curl "${args[@]}" "${GRAYLOG_URL}/api${path}")"; then
+    echo "[provision] ${method} ${path} failed: ${response}" >&2
+    return 1
+  fi
+  printf '%s\n' "$response"
 }
 
 # Mensagens vão para o stderr: o stdout das funções é usado para devolver ids.
@@ -161,7 +168,10 @@ ensure_rule() {
 # __REPLACE_IN_TEXT_FIELDS__ pela troca do valor mascarado em cada campo de LGPD_TEXT_FIELDS.
 render_rule() {
   local template="$1" field="$2" text rule_text text_lines=""
-  [[ "$field" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "invalid field name for LGPD rule: ${field}" >&2; exit 1; }
+  # O nome entra no código da regra: só identificador simples (sem aspas, espaços ou pontos).
+  for text in "$field" "${LGPD_TEXT_FIELDS[@]}"; do
+    [[ "$text" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "invalid field name for LGPD rule: ${text}" >&2; exit 1; }
+  done
   for text in "${LGPD_TEXT_FIELDS[@]}"; do
     text_lines+="  set_field(\"${text}\", regex_replace(pattern: search_pattern, value: to_string(\$message.${text}), replacement: masked_text));"$'\n'
   done
@@ -217,15 +227,18 @@ ensure_pipeline_before_streams() {
 }
 
 # ---------------------------------------------------------------- alertas (event definitions)
-# Uso: ensure_event "Título" "Descrição" <prioridade 1-3> <stream_id> "<query>" <limiar> <janela_min>
+# Uso: ensure_event "Título" "Descrição" <prioridade 1-3> <stream_id> "<query>" <limiar> <janela_min> [campo de agrupamento]
+# Com o campo de agrupamento, o limiar vale para cada valor dele (ex.: por investigador), não para o total.
 ensure_event() {
-  local title="$1" description="$2" priority="$3" stream="$4" query="$5" threshold="$6" window_min="$7"
-  local existing
+  local title="$1" description="$2" priority="$3" stream="$4" query="$5" threshold="$6" window_min="$7" group_by="${8:-}"
+  local existing group_json
+  group_json="$(jq -nc --arg g "$group_by" 'if $g == "" then [] else [$g] end')"
   existing="$(api GET "/events/definitions?per_page=200" | jq -c --arg t "$title" '[.event_definitions[] | select(.title == $t)][0] // empty')"
   if [[ -n "$existing" ]]; then
-    # Já existe com a mesma consulta/stream/limiar: nada a fazer. Se mudou no script, recria para sincronizar.
-    if jq -e --arg q "$query" --arg s "$stream" --argjson th "$threshold" \
-      '.config.query == $q and .config.streams == [$s] and .config.conditions.expression.right.value == $th' <<<"$existing" >/dev/null; then
+    # Já existe com a mesma consulta/stream/limiar/janela/agrupamento: nada a fazer. Se mudou no script, recria.
+    if jq -e --arg q "$query" --arg s "$stream" --argjson th "$threshold" --argjson w "$((window_min * 60000))" \
+      --argjson g "$group_json" '.config.query == $q and .config.streams == [$s] and .config.search_within_ms == $w
+        and .config.conditions.expression.right.value == $th and (.config.group_by // []) == $g' <<<"$existing" >/dev/null; then
       return 0
     fi
     api DELETE "/events/definitions/$(jq -r '.id' <<<"$existing")" >/dev/null
@@ -233,11 +246,11 @@ ensure_event() {
   fi
   api POST "/events/definitions?schedule=true" "$(jq -nc --arg t "$title" --arg d "$description" \
     --argjson p "$priority" --arg s "$stream" --arg q "$query" --argjson th "$threshold" \
-    --argjson w "$((window_min * 60000))" '{ entity: {
+    --argjson w "$((window_min * 60000))" --argjson g "$group_json" '{ entity: {
       title: $t, description: $d, priority: $p, alert: true,
       config: {
         type: "aggregation-v1", query: $q, query_parameters: [], filters: [], streams: [$s],
-        group_by: [], series: [{id: "count-", type: "count"}],
+        group_by: $g, series: [{id: "count-", type: "count"}],
         conditions: { expression: { expr: ">", left: { expr: "number-ref", ref: "count-" },
                                     right: { expr: "number", value: $th } } },
         search_within_ms: $w, execute_every_ms: 60000, use_cron_scheduling: false, event_limit: 100 },
@@ -257,6 +270,8 @@ remove_event() {
 }
 
 # ================================================================= execução
+# Carregado com "source" (o smoke test usa as funções acima), só define as funções: não provisiona.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 wait_for_graylog
 
 ensure_input "GELF TCP (aplicações)" "org.graylog2.inputs.gelf.tcp.GELFTCPInput"
@@ -280,8 +295,11 @@ LGPD_CNPJ_FIELDS=(cnpj Cnpj CNPJ)
 LGPD_PHONE_FIELDS=(phone Phone mobilePhone MobilePhone mobile_phone celular Celular telefone Telefone)
 LGPD_LOGIN_FIELDS=(username user_name UserName Username login Login preferred_username email Email)
 # 2) Textos (estágio 4, rede de segurança): o que vazou sem campo é reconhecido pelo formato. Inclui os campos que o
-#    sink Serilog envia além do "message" (full_message e os da exceção).
-LGPD_TEXT_FIELDS=(message full_message ExceptionMessage StackTrace ClientMessage ClientStack http_path)
+#    sink Serilog envia além do "message" (full_message, os da exceção e o RequestPath da requisição), os dos logs do
+#    navegador (ClientMessage, ClientStack e a URL ClientSource), o motivo da pesquisa em logs (case_reference) e o
+#    único campo de URL do access log do nginx (http_path; o log_format json_access não grava query string nem referer).
+LGPD_TEXT_FIELDS=(message full_message ExceptionMessage StackTrace RequestPath ClientMessage ClientStack ClientSource
+  case_reference http_path)
 
 lgpd_rule_titles=() lgpd_typed_titles=() lgpd_text_titles=()
 lgpd_generate() { # <modelo> <campos...>: cria as regras e devolve os títulos (um por linha)
@@ -362,7 +380,8 @@ keycloak_server_stream="$(ensure_stream "Keycloak - Servidor" "Logs do servidor 
 migration_stream="$(ensure_stream "Identidade - Migração" "Migração do Legado para o Keycloak e tentativas inválidas (login mascarado)." "$keycloak_index" false \
   "[$(stream_rule service_name 1 keycloak),$(stream_rule type 2 '^(LEGACY_.+|RESET_UNKNOWN_USER)$')]")"
 
-# Cadastro (projeto ../cadastro): BFF (Serilog/GELF TCP) e nginx (Docker GELF driver), mesmo padrão do legado.
+# Cadastro (projeto ../cadastro), mesmo padrão do legado: a Cadastro.Api envia por Serilog/GELF TCP com
+# service_name=cadastro-api; o nginx do frontend, pelo Docker GELF driver com tag cadastro-web (access log JSON).
 cadastro_api_stream="$(ensure_stream "Cadastro - API" "Logs estruturados da Cadastro.Api (BFF, Serilog/GELF TCP)." "$cadastro_index" true \
   "[$(stream_rule service_name 1 cadastro-api)]")"
 cadastro_web_stream="$(ensure_stream "Cadastro - Web (nginx)" "Access log JSON do nginx do frontend do Cadastro." "$cadastro_index" true \
@@ -374,6 +393,11 @@ cadastro_browser_stream="$(ensure_stream "Cadastro - Navegador" "Eventos do fron
 # Eventos do navegador chegam por endpoint anônimo e podem ser forjados: nunca entram na trilha de segurança.
 cadastro_security_stream="$(ensure_stream "Cadastro - Segurança" "Login, logout, acesso negado, rate limit e cadastro (OWASP A09)." "$cadastro_index" false \
   "[$(stream_rule service_name 1 cadastro-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access denied|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
+# Pesquisa em logs por token (ADR-0003, item 7): cada consulta gerada (log_search_query_issued) e cada tentativa sem a
+# role (log_search_access_denied, 403), com investigator_id, data_type, case_reference e tokens, nunca o valor. Fica no
+# índice do Cadastro (retenção LOG_RETENTION_DAYS: 30 dias mínimos, apagado até 35) e também em "Cadastro - API".
+cadastro_log_search_stream="$(ensure_stream "Cadastro - Pesquisa em logs (LGPD)" "Trilha de auditoria das pesquisas em logs por token: investigador, tipo de dado, motivo e tokens (sem o valor pesquisado)." "$cadastro_index" false \
+  "[$(stream_rule service_name 1 cadastro-api),$(stream_rule audit_event 2 '^log_search_(query_issued|access_denied)$'),$(stream_rule log_source 1 browser true)]")"
 
 # Títulos antigos ("Sistema: assunto") de antes do padrão "<Sistema> - <Assunto>": remove para não duplicar alertas.
 LEGACY_EVENT_TITLES=(
@@ -430,5 +454,11 @@ ensure_event "Cadastro - Erros no navegador" "Erros JavaScript ou falhas inesper
   "$cadastro_browser_stream" "${REAL} AND level:<=3" 0 5
 ensure_event "Cadastro - Erros 5xx no nginx" "Respostas 5xx servidas pelo frontend/proxy do Cadastro." 2 \
   "$cadastro_web_stream" "${REAL} AND http_status:>=500" 0 5
+# O endpoint é um oráculo ("este CPF aparece nos logs?"): volume anormal de um investigador sugere abuso ou conta tomada.
+ensure_event "Cadastro - Excesso de pesquisas em logs" "Mais de 10 pesquisas em logs do mesmo investigador em 10 minutos." 3 \
+  "$cadastro_log_search_stream" "${REAL} AND audit_event:log_search_query_issued" 10 10 investigator_id
+# Tentativas sem a role (403) repetidas pelo mesmo investigador_id: sondagem do oráculo ou conta sem permissão insistindo.
+ensure_event "Cadastro - Acessos negados à pesquisa em logs" "Mais de 2 tentativas negadas (403) de pesquisa em logs do mesmo usuário em 10 minutos." 3 \
+  "$cadastro_log_search_stream" "${REAL} AND audit_event:log_search_access_denied" 2 10 investigator_id
 
-log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
+log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} cadastro-log-search=${cadastro_log_search_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"

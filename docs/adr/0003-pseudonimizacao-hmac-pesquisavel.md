@@ -109,13 +109,21 @@ Fontes:
        obrigatório**, antiforgery e rate limit por usuário. Tela `/log-search` ("Pesquisa em logs") no frontend do
        Cadastro, porque o BFF não expõe a API fora da sessão do navegador.
      - **Auditoria**: cada pesquisa gera um log `Information` com `audit_event: log_search_query_issued`,
-       `investigator_id` (o `sub` do Keycloak, nunca o login), `data_type`, `case_reference`, os tokens gerados e o
+       `investigator_id` (o `sub` do Keycloak, nunca o login), `data_type`, `case_reference`, os tokens gerados (campo
+       `tokens`, um texto único com os tokens separados por vírgula, não lista: `ParseArrayValues=true` do sink a dividiria) e o
        `trace_id`; **nunca o valor pesquisado**. Stream `Cadastro - Pesquisa em logs (LGPD)` no Graylog. Falha de
-       autorização (403) também é registrada.
+       autorização (403) também é registrada, com `audit_event: log_search_access_denied` (com `investigator_id`,
+       sem tokens). O stream aceita os dois valores de `audit_event` vindos de
+       `service_name: cadastro-api` (nunca de `log_source: browser`), fica no índice do Cadastro e tem os alertas
+       `Cadastro - Excesso de pesquisas em logs` (mais de 10 pesquisas do mesmo `investigator_id` em 10 minutos) e
+       `Cadastro - Acessos negados à pesquisa em logs` (mais de 2 negações do mesmo `investigator_id` em 10 minutos).
+       Os inputs GELF não autenticam o remetente: quem alcança a rede pode forjar eventos na trilha; em produção, input com
+       TLS e mTLS e rede dedicada (CLAUDE.md do graylog). A retenção do índice é de 30 a 35 dias (mínimo 30, apagado até 35).
    - **Dev: script** `cadastro/scripts/log-search-token.sh` que lê a chave do `.env` local e imprime a mesma
      consulta. Não existe em outros ambientes.
-8. **Texto livre** (`message`, `full_message`, `ExceptionMessage`, `StackTrace`, `ClientMessage`, `ClientSource`,
-   `RequestPath`, campos de URL do nginx...): só máscara, nunca token. Na origem, o texto renderizado do template já sai
+8. **Texto livre** (`message`, `full_message`, `ExceptionMessage`, `StackTrace`, `ClientMessage`, `ClientStack`, `ClientSource`,
+   `RequestPath`, `case_reference` e `http_path`, o único campo de URL do access log do nginx): só máscara, nunca
+   token. Na origem, o texto renderizado do template já sai
    mascarado; o que vier em exceções de terceiros continua coberto pelo estágio 4 do pipeline. Para achar eventos de um
    titular, pesquisa-se pelo campo `*_token`, não pelo texto.
 9. **Fora do escopo do reconhecimento por formato no texto livre** (complementa o item 5 do ADR-0002): **celular sem
@@ -125,7 +133,7 @@ Fontes:
     é trocado em `message`/`full_message`/exceções (palavra inteira) pela máscara, quando válida, ou por `***`, quando
     fora do formato. O valor **curto** não é trocado nos textos, para não corromper palavras (ex.: `ab` em `tabela`,
     `api` em `Legado.Api`): login ou e-mail com menos de 4 caracteres (o padrão de login do Cadastro é 4–30), CPF e
-    telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos. No Graylog, a regra está nos
+    telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos **no Graylog**. Na origem (legado e cadastro) a contagem é só de dígitos ASCII para CPF, CNPJ e telefone: um CNPJ alfanumérico fora do formato com menos de 8 dígitos não é trocado no texto da origem, mas é trocado no Graylog se tiver 8 ou mais caracteres alfanuméricos (divergência conhecida, só afeta valor inválido). A regra do Graylog está nos
     modelos `lgpd-*.rule.tmpl`. Na origem (legado), o mesmo limite vale para o texto do `Scope`.
 
 ## Alternativas consideradas
