@@ -61,6 +61,10 @@ logger.LogWarning($"Cadastro recusado para CPF {cpf} e celular {phone}");
 O pipeline trabalha em duas camadas, com regras geradas uma por campo dos modelos em
 [`provisioning/rules/templates/`](provisioning/rules/templates):
 1. **Pelo campo (estágio 3).** Mascara o campo pelo tipo e troca o mesmo valor em todos os textos, sem adivinhar.
+   Valor fora do formato vira `***` no campo e nos textos (ex.: celular sem DDD `98765-4321`); só o valor curto
+   (login/e-mail com menos de 4 caracteres, CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos) não é trocado nos textos, para
+   um login como `api` não corromper `Legado.Api` ou `/api/v1`. Valor que já chega mascarado da
+   origem (ADR-0003) e os campos `<Campo>_token` ficam como estão.
 2. **Pelo formato (estágio 4, rede de segurança).** Reconhece o que vazou sem campo nos textos (`LGPD_TEXT_FIELDS`:
    `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `http_path`...).
 
@@ -103,6 +107,9 @@ documenta as variáveis, sem nenhum valor.
 ```bash
 docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner
 ```
+
+No Git Bash (Windows), prefixe com `MSYS_NO_PATHCONV=1`: sem isso o `--entrypoint /scripts/...` vira um caminho do
+Windows e o container falha com `exec: "C:/Program": stat C:/Program: no such file or directory`.
 
 Envia mensagens GELF reais (TCP como o Serilog, UDP como o Docker) e confere: ingestão, roteamento para os streams,
 extração dos campos do nginx, `level_name` e o **mascaramento LGPD** de cada formato (e-mail, login, CPF, CNPJ e

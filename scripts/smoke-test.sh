@@ -30,7 +30,9 @@ find_message() {
     local result
     result="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "$query" '{
       query: $q, timerange: {type: "relative", range: 600}, size: 1,
-      fields: ["message", "full_message", "ExceptionMessage", "StackTrace", "UserName", "Cpf", "Phone", "service_name", "streams",
+      fields: ["message", "full_message", "ExceptionMessage", "StackTrace", "UserName", "Cpf", "Phone", "Cnpj", "Email", "Login", "Celular", "cpf", "cnpj", "email",
+        "cpf_token", "email_token",
+        "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
@@ -142,6 +144,34 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   short_message: ("Cadastro " + $id + " de \"Maria.Silva\" com CPF \"11223366699\" e celular \"11987654321\"") }')" \
   | nc -w 3 "$GELF_HOST" 12201
 
+# 12) Origem que já pseudonimiza (ADR-0003): máscara e <Campo>_token prontos chegam e ficam como estão (campo e texto).
+#     Inclui CNPJ alfanumérico, e-mail curto (a***) e longo (ana***, formato do legado) e nomes em minúsculas.
+premasked_text="CPF ***.456.789-** e ***.233.666-** CNPJ 12.3**.***/***1-90 e 12.A**.***/***E-35"
+premasked_text+=" celular 11*****4321 login mar*** e jos*** e-mail a***@gmail e ana***@gmail"
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" --arg t "$premasked_text" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
+  _correlation_id: ($id + "-premasked"), short_message: ("Pronto " + $id + " " + $t),
+  _Cpf: "***.456.789-**", _Cpf_token: "k1-b81c27bb5f38080e6ca0ed38b828f262",
+  _Cnpj: "12.3**.***/***1-90", _Cnpj_token: "k1-f528c9e51a504dbaf6a9f245ba2cea10",
+  _Phone: "11*****4321", _Phone_token: "k1-412838d1c85d64c0ed202ae3b1546615",
+  _UserName: "mar***", _UserName_token: "k1-c5b5c3feef6c408ecea5b17d95af9793",
+  _Email: "a***@gmail", _Email_token: "k1-c362504bb56a3e35cc245073244c3da6",
+  _cpf: "***.233.666-**", _cpf_token: "k1-b81c27bb5f38080e6ca0ed38b828f262", _cnpj: "12.A**.***/***E-35",
+  _email: "ana***@gmail", _email_token: "k1-c362504bb56a3e35cc245073244c3da6", _Login: "jos***" }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
+# 13) Valor fora do formato: o campo vira ***. No texto, CPF/CNPJ/telefone com 8+ caracteres também viram *** (origem
+#     não adaptada, ADR-0003 item 10); valor curto (login < 4, telefone "1") não é trocado (ADR-0003 item 10), para
+#     UserName "api" não virar "Legado.***" nem "/***/v1" e login "ab" não corromper "tabela abc".
+short_text="Legado.Api falhou em /api/v1/users na tabela abc para 1234567890 ramal 1 celular 98765-4321"
+short_masked="Legado.Api falhou em /api/v1/users na tabela abc para *** ramal 1 celular ***"
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" --arg t "$short_text" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
+  _correlation_id: ($id + "-short"), short_message: ("Curto " + $id + " " + $t),
+  _StackTrace: "at Legado.Api.Users.Get()", _http_path: "/api/v1/users",
+  _UserName: "api", _Login: "ab", _Cpf: "1234567890", _Phone: "1", _Celular: "98765-4321" }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -163,6 +193,28 @@ check "LGPD (campo estruturado): campos mascarados pelo tipo (UserName, Cpf, Pho
   "$(jq '.UserName == "mar***" and .Cpf == "***.233.666-**" and .Phone == "11*****4321"' <<<"$typed_message")"
 check "LGPD (campo estruturado): mesmo valor trocado no texto, celular como celular" \
   "$(jq '.message | endswith("de \"mar***\" com CPF \"***.233.666-**\" e celular \"11*****4321\"")' <<<"$typed_message")"
+
+premasked_message="$(find_message "correlation_id:${RUN_ID}-premasked")"
+check "LGPD (origem pseudonimizada): máscara pronta preservada (Cpf, Cnpj, Phone, UserName, Email)" \
+  "$(jq '.Cpf == "***.456.789-**" and .Cnpj == "12.3**.***/***1-90" and .Phone == "11*****4321"
+    and .UserName == "mar***" and .Email == "a***@gmail" and .Login == "jos***" and .cpf == "***.233.666-**"
+    and .cnpj == "12.A**.***/***E-35" and .email == "ana***@gmail"' <<<"$premasked_message")"
+check "LGPD (origem pseudonimizada): campos *_token preservados" \
+  "$(jq '.Cpf_token == "k1-b81c27bb5f38080e6ca0ed38b828f262" and .Cnpj_token == "k1-f528c9e51a504dbaf6a9f245ba2cea10"
+    and .Phone_token == "k1-412838d1c85d64c0ed202ae3b1546615" and .UserName_token == "k1-c5b5c3feef6c408ecea5b17d95af9793"
+    and .Email_token == "k1-c362504bb56a3e35cc245073244c3da6" and .cpf_token == "k1-b81c27bb5f38080e6ca0ed38b828f262"
+    and .email_token == "k1-c362504bb56a3e35cc245073244c3da6"' <<<"$premasked_message")"
+check "LGPD (origem pseudonimizada): texto com as máscaras prontas fica inalterado" \
+  "$(jq --arg t "Pronto ${RUN_ID} ${premasked_text}" '.message == $t' <<<"$premasked_message")"
+
+short_message="$(find_message "correlation_id:${RUN_ID}-short")"
+check "LGPD (fora do formato): UserName e Login curtos, CPF de 10 dígitos, telefone curto e sem DDD viram ***" \
+  "$(jq '.UserName == "***" and .Login == "***" and .Cpf == "***" and .Phone == "***" and .Celular == "***"' <<<"$short_message")"
+check "LGPD (fora do formato): CPF de 10 dígitos e celular sem DDD trocados por *** no texto" \
+  "$(jq --arg t "Curto ${RUN_ID} ${short_masked}" '.message == $t' <<<"$short_message")"
+check "LGPD (fora do formato): valor curto não corrompe os textos (message, StackTrace, http_path)" \
+  "$(jq --arg t "Curto ${RUN_ID} ${short_masked}" '.message == $t and .StackTrace == "at Legado.Api.Users.Get()"
+    and .http_path == "/api/v1/users"' <<<"$short_message")"
 
 web_message="$(find_message "http_correlation_id:${RUN_ID}")"
 check "GELF UDP ingerido e service_name vindo da tag (legado-web)" "$(jq '.service_name == "legado-web"' <<<"$web_message")"

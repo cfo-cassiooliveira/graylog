@@ -1,6 +1,6 @@
 # ADR-0002: Mascaramento parcial de dados pessoais na gravação dos logs
 
-- **Status**: Aceito
+- **Status**: Aceito · Complementado por [ADR-0003](0003-pseudonimizacao-hmac-pesquisavel.md) (token pesquisável gerado na origem)
 - **Data**: 2026-11-14
 - **Decisores**: Cassio Oliveira (responsável técnico)
 - **Artigos da Constituição relacionados**: Art. IV.1 (LGPD), Art. IV.6 (dados pessoais), Art. VI.1 (logs no Graylog)
@@ -44,7 +44,11 @@ problemas:
    uma regra por campo:
    - **Estágio 3, pelo campo.** O nome do campo diz o tipo, então nada é adivinhado. O campo é mascarado, e o mesmo
      valor é trocado pela máscara em todos os textos, como palavra inteira. Por isso `11987654321` num campo `Phone`
-     vira `11*****4321`. Valor fora do formato do tipo vira `***`, para nunca ficar em claro.
+     vira `11*****4321`. Valor fora do formato do tipo vira `***`, para nunca ficar em claro, e também é trocado por
+     `***` nos textos; só não é trocado nos textos quando é curto: login/e-mail com menos de 4 caracteres e
+     CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos (ADR-0003, item 10), para `api` não corromper `Legado.Api`. Valor que já
+     chega no formato de máscara (`***.456.789-**`, `mar***`, `a***@gmail`...) e os campos `<Campo>_token` ficam como
+     estão (ADR-0003, item 4).
    - **Estágio 4, pelo formato (rede de segurança).** O que vazou sem campo é reconhecido pelo formato nos textos
      (`LGPD_TEXT_FIELDS`: `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `http_path`...). Aqui há
      ambiguidade: 11 dígitos sem pontuação podem ser CPF ou celular, e são mascarados como CPF, a máscara que esconde

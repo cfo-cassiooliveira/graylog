@@ -31,11 +31,15 @@ docs/adr/                 decisões
   smoke test provando o descarte.
 - Dados pessoais são mascarados **na gravação**, nunca só na exibição (ADR-0002): `ana***@gmail`, `mar***`,
   `***.456.789-**`, `12.3**.***/***1-90`, `11*****4321`.
-- **Regra para quem envia log**: dado pessoal, quando inevitável, chega **só como campo estruturado** com o nome do
-  tipo (`Cpf`, `Cnpj`, `Phone`/`MobilePhone`, `UserName`, `Email`; listas `LGPD_CPF_FIELDS`, `LGPD_CNPJ_FIELDS`,
+- **Regra para quem envia log**: nenhum dado pessoal em log (Constituição, Art. IV.6). Exceção só com ADR aprovado,
+  e o dado chega **pseudonimizado na origem** (máscara + `<Campo>_token`, ADR-0003) e **só como campo estruturado**
+  com o nome do tipo (`Cpf`, `Cnpj`, `Phone`/`MobilePhone`, `UserName`, `Email`; listas `LGPD_CPF_FIELDS`, `LGPD_CNPJ_FIELDS`,
   `LGPD_PHONE_FIELDS` e `LGPD_LOGIN_FIELDS`). O pipeline mascara pelo nome do campo e troca o mesmo valor nos textos,
-  sem adivinhar. O reconhecimento por formato nos textos (`LGPD_TEXT_FIELDS`) é só rede de segurança. Nome de campo
-  novo entra na lista do tipo; formato novo muda o modelo em `rules/templates/`. Os dois ganham caso no smoke test.
+  sem adivinhar; valor fora do formato vira `***` no campo e nos textos, exceto o curto (login < 4 caracteres,
+  CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos), que não é trocado nos textos; máscara pronta da origem e `<Campo>_token` ficam
+  como estão (ADR-0003). O reconhecimento por formato nos textos (`LGPD_TEXT_FIELDS`) é só rede de segurança. Nome
+  de campo novo entra na lista do tipo; formato novo muda o modelo em `rules/templates/`. Os dois ganham caso no
+  smoke test.
 - API do Graylog 7: criação de stream e de alerta usa o corpo `{"entity": {...}}`; `lbstatus` responde text/plain.
 - Novo sistema → novos streams e alertas no `provision.sh`, com `service_name` próprio e retenção definida (LGPD).
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**
@@ -50,4 +54,5 @@ docs/adr/                 decisões
 ./scripts/generate-env.sh && docker compose up -d --build
 docker compose run --rm provisioner                       # reaplica o provisionamento
 docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner
+# Git Bash (Windows): prefixe com MSYS_NO_PATHCONV=1 (senão o entrypoint vira "C:/Program Files/Git/scripts/...")
 ```
