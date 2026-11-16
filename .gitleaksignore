@@ -16,3 +16,7 @@
 5320d455404dc8be97a92926e809ce69e0fb67a0:scripts/smoke-test.sh:generic-api-key:206
 # Vetores de teste da pseudonimização (ADR-0003 do graylog, plan.md §2): chave HMAC FICTÍCIA e pública (bytes 00..1f) e token calculado com ela; nunca usada em ambiente algum (as chaves reais ficam no .env, gerado por script).
 6d27601749ecdbe0f4ef93f4a8069c485d08eca4:scripts/smoke-test.sh:generic-api-key:161
+# Vetores de teste da pseudonimização (ADR-0003 do graylog, plan.md §2): chave HMAC FICTÍCIA e pública (bytes 00..1f) e token calculado com ela; nunca usada em ambiente algum (as chaves reais ficam no .env, gerado por script).
+8c38ab5c0ac6c75a64a99672f97b1518248c390b:README.md:generic-api-key:72
+8c38ab5c0ac6c75a64a99672f97b1518248c390b:scripts/smoke-test.sh:generic-api-key:163
+8c38ab5c0ac6c75a64a99672f97b1518248c390b:scripts/smoke-test.sh:generic-api-key:253
