@@ -58,7 +58,7 @@ logger.LogWarning($"Cadastro recusado para CPF {cpf} e celular {phone}");
 | CPF | `Cpf`, `cpf`, `CPF` (`LGPD_CPF_FIELDS`) |
 | CNPJ | `Cnpj`, `cnpj`, `CNPJ` (`LGPD_CNPJ_FIELDS`) |
 | Telefone | `Phone`, `MobilePhone`, `phone`, `mobilePhone`, `celular`, `telefone`... (`LGPD_PHONE_FIELDS`) |
-| Login ou e-mail | `UserName`, `Email`, `username`, `login`, `email`, `preferred_username`... (`LGPD_LOGIN_FIELDS`) |
+| Login ou e-mail | `UserName`, `Email`, `username`, `login`, `email`, `preferred_username`, `masked_login`... (`LGPD_LOGIN_FIELDS`) |
 
 ### Tokens e pesquisa por titular ([ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md))
 
@@ -104,6 +104,23 @@ nem nos alertas de backend.
 - Fora do Docker: GELF em `localhost:12201` (TCP ou UDP) ou `http://localhost:12202/gelf` (HTTP).
 
 Veja a integração completa no `docker-compose.graylog.yml` do legado.
+
+## Ordem com os demais projetos
+
+O Graylog é opcional e sobe **primeiro** (ele cria a rede `observability`); nenhum projeto depende dele para funcionar.
+Com ele no ar, suba os outros **sempre com o override do Graylog**: `../legado` (`-f docker-compose.yml -f
+docker-compose.identity.yml -f docker-compose.graylog.yml`, depois de `./scripts/internal-credentials.sh`), `../keycloak`
+(`-f docker-compose.yml -f docker-compose.graylog.yml`) e `../cadastro` (`-f docker-compose.yml -f
+docker-compose.graylog.yml`). A rede `workspace-identity` é criada por `./scripts/identity-network.sh` (igual em cada
+projeto); detalhes no README do `../keycloak`.
+
+**Migração do Legado**: a auditoria do Keycloak chega pelo GELF HTTP (12202) e o stream `Identidade - Migração` reúne
+`LEGACY_*` e `RESET_UNKNOWN_USER`. Só esses eventos trazem `masked_login` (ADR-0007 do keycloak, ex.: `ana***@gmail`),
+sem `_token`; o nome está em `LGPD_LOGIN_FIELDS` e o valor, já mascarado, passa intacto. Nunca adicione outro campo de
+login/e-mail do Keycloak sem ADR. O E2E do `../cadastro` confere que nenhum e-mail completo aparece nesses streams.
+
+Limitação conhecida: não rode o `provisioner` ou o smoke do Graylog junto com o provisionamento/smoke do `../keycloak`
+(falha intermitente nos fluxos do Keycloak, causa não comprovada); espere um terminar antes de iniciar o outro.
 
 ## Variáveis de ambiente (`.env`)
 

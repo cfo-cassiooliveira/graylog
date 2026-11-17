@@ -38,7 +38,7 @@ problemas:
    | CPF | `cpf`, `Cpf`, `CPF` (`LGPD_CPF_FIELDS`) |
    | CNPJ | `cnpj`, `Cnpj`, `CNPJ` (`LGPD_CNPJ_FIELDS`) |
    | Telefone (celular ou fixo) | `phone`, `Phone`, `mobilePhone`, `MobilePhone`, `mobile_phone`, `celular`, `telefone`... (`LGPD_PHONE_FIELDS`) |
-   | Login ou e-mail | `username`, `UserName`, `login`, `preferred_username`, `email`, `Email`... (`LGPD_LOGIN_FIELDS`) |
+   | Login ou e-mail | `username`, `UserName`, `login`, `preferred_username`, `email`, `Email`, `masked_login`... (`LGPD_LOGIN_FIELDS`) |
 
 4. **Duas camadas no pipeline**, geradas pelo `provision.sh` a partir dos modelos em `provisioning/rules/templates/`,
    uma regra por campo:
