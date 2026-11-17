@@ -54,7 +54,7 @@ problemas:
      `ClientStack`, `ClientSource`, `case_reference` e `http_path`). Aqui há
      ambiguidade: 11 dígitos sem pontuação podem ser CPF ou celular, e são mascarados como CPF, a máscara que esconde
      mais.
-5. **Fora do escopo**: endereço, cidade/estado, telefone fixo e CNPJ sem pontuação (14 dígitos se confundem com
+5. **Fora do escopo** (no texto livre, sem campo estruturado; em campo estruturado de `LGPD_PHONE_FIELDS` o fixo é tratado): endereço, cidade/estado, telefone fixo e CNPJ sem pontuação (14 dígitos se confundem com
    timestamps `yyyyMMddHHmmss`; CNPJ de empresa, em geral, não é dado pessoal).
 
 ## Alternativas consideradas

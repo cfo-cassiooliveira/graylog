@@ -178,22 +178,22 @@ tablet e desktop (formulário à esquerda, resultado à direita a partir de 1024
 
 1. Formatos de máscara: ADR-0002. Token, domínios, canônico e chaves: ADR-0003.
 2. E-mail e login geram o mesmo token (domínio `login`).
-3. A referência do caso é obrigatória: 3 a 40 caracteres `[A-Za-z0-9._/-]`, e passa pelo mascarador antes de ser
-   registrada.
+3. A referência do caso é obrigatória: 3 a 40 caracteres `[A-Za-z0-9._/-]`, e é validada (menos de 8 dígitos no total, para não ser CPF/telefone disfarçado), não mascarada; o estágio 4 do Graylog cobre `case_reference` caso o valor passe
+   (o log de auditoria grava a referência como veio).
 4. Limite: 30 pesquisas por investigador por hora.
 5. A consulta cobre todos os nomes de campo do tipo (mesmas listas `LGPD_*_FIELDS`) e todas as chaves configuradas.
 6. Celular sem DDD em texto livre: fora do escopo (ADR-0003, item 9).
 
 ## 5. Requisitos não funcionais
 
-- **LGPD**: logs continuam dado pessoal (pseudonimizado); retenção de 30 dias mantida.
+- **LGPD**: logs continuam dado pessoal (pseudonimizado); retenção de 30 a 35 dias (`index_lifetime_max=P35D`), decisão fechada.
 - **Segurança**: chave de 256 bits fora do repositório; OTP para a role; antiforgery; Problem Details sem eco do valor.
-- **Desempenho**: enricher com custo < 50 µs por evento com dado pessoal (HMAC em memória, sem I/O).
+- **Desempenho**: enricher com custo < 50 µs por evento com dado pessoal (HMAC em memória, sem I/O) — meta não medida (sem benchmark).
 - **Compatibilidade**: nomes de campo atuais preservados (só soma `*_token`); dashboards e streams sem mudança.
 
 ## 6. Fora de escopo
 
-- Token no Keycloak (auditoria segue com ids técnicos e `masked_login` do ADR-0007 do keycloak).
+- Token no Keycloak (auditoria segue com ids técnicos; o `masked_login` do ADR-0007 do keycloak está proposto, ainda não emitido; o stream e o smoke usam evento sintético).
 - Reprocessar logs antigos para gerar token.
 - Pesquisa direto dentro do Graylog (plugin, decorator ou lookup table).
 - Cofre corporativo (a spec usa variável de ambiente/user-secrets; o cofre de produção é escolha da infraestrutura).
@@ -203,4 +203,4 @@ tablet e desktop (formulário à esquerda, resultado à direita a partir de 1024
 - O debugger termina as correções em andamento em `provision.sh`, `smoke-test.sh` e regras antes da onda que toca o
   graylog.
 - O Cadastro passa a enviar logs ao Graylog nesta spec (pré-requisito da auditoria).
-- Retenção do stream de auditoria: mesma do índice do Cadastro (30 dias) até decisão em contrário (pergunta aberta).
+- Retenção do stream de auditoria: mesma do índice do Cadastro: 30 a 35 dias (`index_lifetime_max=P35D`), decisão fechada.

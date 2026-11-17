@@ -3,9 +3,7 @@
 Legenda: `[P]` pode rodar em paralelo · cada tarefa = 1 PR pequeno no repositório indicado · testes **sempre**
 inclusos (Art. V.1) · `[GL]` graylog · `[LG]` legado · `[CD]` cadastro · `[KC]` keycloak.
 
-Todos os repositórios trabalham na branch local `DEV-004` (já com `origin/master` integrada). **Preservar** as mudanças
-não commitadas existentes: graylog `README.md`/`CLAUDE.md` (nota `MSYS_NO_PATHCONV`) e docs/ADRs; legado `CLAUDE.md` e
-`LoggingSetup.cs`; cadastro `CLAUDE.md`; keycloak `CLAUDE.md` e `GelfMessageFactory.java`.
+Todos os repositórios trabalham na branch local `DEV-004` (já com `origin/master` integrada).
 
 Pré-condição do graylog: o debugger termina as correções em `provision.sh`, `smoke-test.sh` e regras antes de G01.
 
@@ -133,7 +131,7 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
 
 - [ ] **X01** [GL][LG][CD][KC] — Auditoria cruzada documentação × código · `code-reviewer` + `qa-engineer`
   - Depende de: todas as anteriores
-  - Escopo: README, CLAUDE.md, ADRs (graylog 0002/0003, legado 0003, keycloak 0002/0007) e comentários nos 4 repos ×
+  - Escopo: README, CLAUDE.md, ADRs (graylog docs/adr 0002/0003, legado 0003, keycloak doc/adr 0002/0007) e comentários nos 4 repos ×
     código, regras, smoke e testes. Cada afirmação sobre formato, campo, stream, fluxo ou garantia precisa de teste
     ou smoke que a prove; o resto é corrigido ou removido
   - QA: E2E ponta a ponta — mesmo CPF registrado no legado e no cadastro, consulta pela tela, os dois eventos

@@ -34,7 +34,7 @@ find_message() {
         "cpf_token", "email_token", "Obj_Cpf", "Obj_Cpf_token",
         "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type",
-        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
+        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "preferred_username", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -217,6 +217,20 @@ cadastro_web_json="$(jq -nc --arg id "${RUN_ID}-cadastro-web" '{request_id: $id,
 jq -nc --arg m "$cadastro_web_json" '{version: "1.1", _smoke_test: "true", host: "cadastro-web", short_message: $m, level: 6,
   _tag: "cadastro-web"}' | nc -u -w 1 "$GELF_HOST" 12201
 
+# 18) Variações de nome de campo (cada grafia das listas LGPD_*_FIELDS) e client-logs em CLARO (origem não adaptada):
+#     ClientMessage/ClientStack com e-mail, CPF e celular. CPF/CNPJ curtos (< 14 caracteres) vão para ***.
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
+  _correlation_id: ($id + "-fieldnames"),
+  short_message: ("Nomes " + $id + " fone 11987654321 cnpj curto 1234567890123 cpf curto 123456789 user maria.silva"),
+  _phone: "11987654321", _mobilePhone: "11987654321", _mobile_phone: "11987654321", _celular: "11987654321",
+  _telefone: "1133334444", _username: "maria.silva", _user_name: "maria.silva", _login: "maria.silva",
+  _preferred_username: "maria.silva", _CPF: "123.456.789-09", _CNPJ: "12.345.678/0001-90",
+  _Cpf: "123456789", _Cnpj: "1234567890123",
+  _ClientMessage: "falha ana.souza@gmail.com cpf 123.456.789-09 cel 11987654321",
+  _ClientStack: "at save(ana.souza@gmail.com 12345678909)" }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -299,6 +313,29 @@ check "Cadastro: access log do nginx (cadastro-web) extraído, 503 vira erro em 
     and ((.streams // []) | index("Legado - Erros") == null)' <<<"$cadastro_web_message")"
 check "LGPD (texto): http_path do nginx e message derivado dele mascarados" \
   "$(jq '.http_path == "/api/v1/users/ana***@gmail" and .message == "GET /api/v1/users/ana***@gmail -> 503"' <<<"$cadastro_web_message")"
+
+fieldnames_message="$(find_message "correlation_id:${RUN_ID}-fieldnames")"
+check "LGPD (nomes de campo): phone, mobilePhone, mobile_phone, celular e telefone mascarados como telefone" \
+  "$(jq '.phone == "11*****4321" and .mobilePhone == "11*****4321" and .mobile_phone == "11*****4321"
+    and .celular == "11*****4321" and .telefone == "11*****4444"' <<<"$fieldnames_message")"
+check "LGPD (nomes de campo): username, user_name, login e preferred_username mascarados como login (mar***)" \
+  "$(jq '.username == "mar***" and .user_name == "mar***" and .login == "mar***" and .preferred_username == "mar***"' <<<"$fieldnames_message")"
+check "LGPD (nomes de campo): CPF e CNPJ em maiúsculas mascarados pelo tipo" \
+  "$(jq '.CPF == "***.456.789-**" and .CNPJ == "12.3**.***/***1-90"' <<<"$fieldnames_message")"
+check "LGPD (fora do formato): CPF de 9 e CNPJ de 13 dígitos viram *** no campo e no texto" \
+  "$(jq --arg t "Nomes ${RUN_ID} fone 11*****4321 cnpj curto *** cpf curto *** user mar***" \
+    '.Cpf == "***" and .Cnpj == "***" and .message == $t' <<<"$fieldnames_message")"
+check "LGPD (client-logs em claro): ClientMessage e ClientStack mascarados, sem e-mail, CPF nem celular originais" \
+  "$(jq '.ClientMessage == "falha ana***@gmail cpf ***.456.789-** cel 11*****4321"
+    and .ClientStack == "at save(ana***@gmail ***.456.789-**)"
+    and (tostring | (contains("ana.souza") or contains("123.456.789-09") or contains("12345678909")
+      or contains("11987654321") or contains("maria.silva")) | not)' <<<"$fieldnames_message")"
+
+# Retenção (LGPD, ADR-0002): os index sets criados pelo provisioner apagam entre 30 e 35 dias.
+retention_ok="$(api "${GRAYLOG_URL}/api/system/indices/index_sets" | jq '[.index_sets[] | select(.title | IN("Legado", "Cadastro", "Keycloak", "SonarQube"))]
+  | length == 4 and all(.rotation_strategy.index_lifetime_min == "P30D" and .rotation_strategy.index_lifetime_max == "P35D"
+    and .data_tiering.index_lifetime_min == "P30D" and .data_tiering.index_lifetime_max == "P35D")')"
+check "Retenção: index sets Legado, Cadastro, Keycloak e SonarQube guardam de 30 a 35 dias (P30D–P35D)" "$retention_ok"
 
 audit_stream="Cadastro - Pesquisa em logs (LGPD)"
 audit_message="$(find_message "correlation_id:${RUN_ID}-audit")"

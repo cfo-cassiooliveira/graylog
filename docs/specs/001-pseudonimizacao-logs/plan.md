@@ -110,9 +110,9 @@ Conferir na tarefa (Context7): ordem enricher × renderização do `message` no 
 | Item | Mudança |
 |---|---|
 | `rules/templates/lgpd-*.rule.tmpl` | Valor já no formato de máscara → inalterado; campos `*_token` nunca tocados; troca nos textos **só** quando a máscara é válida (nunca com `***`) e login ≥ 4 caracteres |
-| `provision.sh` | `LGPD_TEXT_FIELDS` + `RequestPath`, `ClientSource`, `case_reference` (`http_path` já estava: é o único campo de URL do `log_format json_access`, sem query string nem referer); access log do `cadastro-web` interpretado como o do `legado-web` (regra 20); comentário do Cadastro conforme a realidade após C01; erro da API do Graylog (ex.: 400 de regra) impresso com o corpo; stream `Cadastro - Pesquisa em logs (LGPD)` (`service_name:cadastro-api`, `audit_event` `log_search_query_issued` ou `log_search_access_denied`, fora `log_source:browser`; índice do Cadastro, 30 dias) e alerta `Cadastro - Excesso de pesquisas em logs` |
+| `provision.sh` | `LGPD_TEXT_FIELDS` + `RequestPath`, `ClientSource`, `case_reference` (`http_path` já estava: é o único campo de URL do `log_format json_access`, sem query string nem referer); access log do `cadastro-web` interpretado como o do `legado-web` (regra 20); comentário do Cadastro conforme a realidade após C01; erro da API do Graylog (ex.: 400 de regra) impresso com o corpo; stream `Cadastro - Pesquisa em logs (LGPD)` (`service_name:cadastro-api`, `audit_event` `log_search_query_issued` ou `log_search_access_denied`, fora `log_source:browser`; índice do Cadastro, 30 a 35 dias: `index_lifetime_max=P35D`) e alerta `Cadastro - Excesso de pesquisas em logs` |
 | `scripts/smoke-test.sh` | Um caso por formato e por campo afirmado nos ADRs; máscara/token prontos preservados; valor curto não corrompe texto; `ClientSource`/`RequestPath`; auditoria no stream |
-| `README.md`, `CLAUDE.md` | Só o que o smoke comprova; referência ao ADR-0003; preservar a nota `MSYS_NO_PATHCONV` já não commitada |
+| `README.md`, `CLAUDE.md` | Só o que o smoke comprova; referência ao ADR-0003; preservar a nota `MSYS_NO_PATHCONV` |
 
 ## 4. Contratos
 
@@ -172,7 +172,6 @@ mesma lista). As listas ficam em `LogSearchFields` (código) com teste que compa
 | Enricher rodar depois da renderização ou não cobrir objetos destructured | Teste de integração com GELF real; conferir doc do sink |
 | Pipeline transformar máscara pronta em `***` | G01 antes de L01/C02 chegarem ao Graylog compartilhado; smoke |
 | Conflito com o debugger nos arquivos do graylog | Onda do graylog só começa após o debugger entregar |
-| Mudanças não commitadas em LoggingSetup/CLAUDE.md | Tarefas partem do working tree atual e preservam essas mudanças |
 | Chave dev copiada entre repos divergir | Script local e README instruem; teste de subida falha sem chave |
 
 ## 9. Decisões (ADRs)

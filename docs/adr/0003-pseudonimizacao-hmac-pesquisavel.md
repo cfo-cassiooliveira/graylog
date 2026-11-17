@@ -81,7 +81,7 @@ Fontes:
      propriedade pela máscara e adiciona `<Campo>_token`. O Serilog renderiza `message`/`full_message` depois dos
      enrichers, então o texto já sai mascarado.
    - **Cadastro**: passa a enviar ao Graylog (Serilog + GELF TCP, como o legado) já com o mesmo enricher.
-   - **Keycloak**: nada muda; a auditoria envia ids técnicos e o `masked_login` do ADR-0007 do keycloak (sem token).
+   - **Keycloak**: nada muda; a auditoria envia ids técnicos. O `masked_login` do ADR-0007 do keycloak está proposto e ainda não é emitido (sem token); o stream `Identidade - Migração` e o smoke usam evento sintético.
    - **nginx**: sem dado pessoal em campo estruturado; segue só com a rede de segurança do pipeline.
 4. **Graylog continua como rede de segurança, só com máscara** (ADR-0002, estágios 3 e 4). O pipeline **não** gera
    token, porque não tem HMAC e qualquer chave numa regra ou lookup table ficaria visível na UI/API. As regras passam a
@@ -104,10 +104,12 @@ Fontes:
        `{ "dataType": "cpf|cnpj|phone|email|login", "value": "...", "caseReference": "INC-1234" }`.
      - Resposta 200: `{ "dataType", "tokens": [{ "keyId", "token" }], "graylogQuery" }`, com a consulta já montada
        sobre todos os nomes de campo do tipo e todas as chaves vigentes, ex.:
-       `Cpf_token:("k1-…" OR "k2-…") OR cpf_token:(…) OR CPF_token:(…)`. 400/401/403/429 em Problem Details.
+       `CPF_token:("k1-…" OR "k2-…") OR Cpf_token:(…) OR cpf_token:(…)` (ordem ordinal dos nomes). 400/401/403/429 em Problem Details.
      - Autorização: realm role **`log-investigator`** no Keycloak (policy `logs:investigate` no Cadastro), com **OTP
        obrigatório**, antiforgery e rate limit por usuário. Tela `/log-search` ("Pesquisa em logs") no frontend do
        Cadastro, porque o BFF não expõe a API fora da sessão do navegador.
+       O step-up de OTP exige `acr=otp` e `auth_time` de no máximo 5 minutos, tolerando `auth_time` até 1 minuto no futuro
+       (diferença de relógio entre Keycloak e BFF; `OtpStepUpRequirement` do Cadastro).
      - **Auditoria**: cada pesquisa gera um log `Information` com `audit_event: log_search_query_issued`,
        `investigator_id` (o `sub` do Keycloak, nunca o login), `data_type`, `case_reference`, os tokens gerados (campo
        `tokens`, um texto único com os tokens separados por vírgula, não lista: `ParseArrayValues=true` do sink a dividiria) e o
@@ -134,7 +136,7 @@ Fontes:
     fora do formato. O valor **curto** não é trocado nos textos, para não corromper palavras (ex.: `ab` em `tabela`,
     `api` em `Legado.Api`): login ou e-mail com menos de 4 caracteres (o padrão de login do Cadastro é 4–30), CPF e
     telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos **no Graylog**. Na origem (legado e cadastro) a contagem é só de dígitos ASCII para CPF, CNPJ e telefone: um CNPJ alfanumérico fora do formato com menos de 8 dígitos não é trocado no texto da origem, mas é trocado no Graylog se tiver 8 ou mais caracteres alfanuméricos (divergência conhecida, só afeta valor inválido). A regra do Graylog está nos
-    modelos `lgpd-*.rule.tmpl`. Na origem (legado), o mesmo limite vale para o texto do `Scope`.
+    modelos `lgpd-*.rule.tmpl`. **Na origem** (legado e cadastro, texto do `Scope`) a regra é outra: valor fora do formato de CPF, CNPJ ou telefone com 8 ou mais dígitos ASCII é trocado por `***` no texto; login ou e-mail fora do formato (ex.: `@gmail.com`), de qualquer tamanho, **não** é trocado no texto da origem (só o campo vira `***`); o Graylog troca por `***` o login inválido com 4 ou mais caracteres.
 
 ## Alternativas consideradas
 

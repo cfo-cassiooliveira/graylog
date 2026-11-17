@@ -37,7 +37,7 @@ docs/adr/                 decisões
   com o nome do tipo (`Cpf`, `Cnpj`, `Phone`/`MobilePhone`, `UserName`, `Email`; listas `LGPD_CPF_FIELDS`, `LGPD_CNPJ_FIELDS`,
   `LGPD_PHONE_FIELDS` e `LGPD_LOGIN_FIELDS`). O pipeline mascara pelo nome do campo e troca o mesmo valor nos textos,
   sem adivinhar; valor fora do formato vira `***` no campo e nos textos, exceto o curto (login < 4 caracteres,
-  CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos no Graylog, 8 dígitos na origem; ADR-0003 item 10), que não é trocado nos textos; máscara pronta da origem e `<Campo>_token` ficam
+  CPF/telefone < 8 dígitos, CNPJ < 8 caracteres alfanuméricos no Graylog, 8 dígitos na origem), que não é trocado nos textos; na origem, login/e-mail inválido de qualquer tamanho também não é trocado no texto (ADR-0003 item 10); máscara pronta da origem e `<Campo>_token` ficam
   como estão (ADR-0003). O reconhecimento por formato nos textos (`LGPD_TEXT_FIELDS`) é só rede de segurança. Nome
   de campo novo entra na lista do tipo; formato novo muda o modelo em `rules/templates/`. Os dois ganham caso no
   smoke test.
