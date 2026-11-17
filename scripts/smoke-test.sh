@@ -34,7 +34,7 @@ find_message() {
         "cpf_token", "email_token", "Obj_Cpf", "Obj_Cpf_token",
         "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type",
-        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "preferred_username", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
+        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "preferred_username", "masked_login", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -225,7 +225,7 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   short_message: ("Nomes " + $id + " fone 11987654321 cnpj curto 1234567890123 cpf curto 123456789 user maria.silva"),
   _phone: "11987654321", _mobilePhone: "11987654321", _mobile_phone: "11987654321", _celular: "11987654321",
   _telefone: "1133334444", _username: "maria.silva", _user_name: "maria.silva", _login: "maria.silva",
-  _preferred_username: "maria.silva", _CPF: "123.456.789-09", _CNPJ: "12.345.678/0001-90",
+  _preferred_username: "maria.silva", _masked_login: "ana***@gmail", _CPF: "123.456.789-09", _CNPJ: "12.345.678/0001-90",
   _Cpf: "123456789", _Cnpj: "1234567890123",
   _ClientMessage: "falha ana.souza@gmail.com cpf 123.456.789-09 cel 11987654321",
   _ClientStack: "at save(ana.souza@gmail.com 12345678909)" }')" \
@@ -320,6 +320,8 @@ check "LGPD (nomes de campo): phone, mobilePhone, mobile_phone, celular e telefo
     and .celular == "11*****4321" and .telefone == "11*****4444"' <<<"$fieldnames_message")"
 check "LGPD (nomes de campo): username, user_name, login e preferred_username mascarados como login (mar***)" \
   "$(jq '.username == "mar***" and .user_name == "mar***" and .login == "mar***" and .preferred_username == "mar***"' <<<"$fieldnames_message")"
+check "LGPD (nomes de campo): masked_login do Keycloak (ADR-0007) já mascarado passa intacto" \
+  "$(jq '.masked_login == "ana***@gmail"' <<<"$fieldnames_message")"
 check "LGPD (nomes de campo): CPF e CNPJ em maiúsculas mascarados pelo tipo" \
   "$(jq '.CPF == "***.456.789-**" and .CNPJ == "12.3**.***/***1-90"' <<<"$fieldnames_message")"
 check "LGPD (fora do formato): CPF de 9 e CNPJ de 13 dígitos viram *** no campo e no texto" \

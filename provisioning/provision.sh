@@ -293,7 +293,7 @@ for rule in "$RULES_DIR"/*.rule; do ensure_rule "$(cat "$rule")"; done
 LGPD_CPF_FIELDS=(cpf Cpf CPF)
 LGPD_CNPJ_FIELDS=(cnpj Cnpj CNPJ)
 LGPD_PHONE_FIELDS=(phone Phone mobilePhone MobilePhone mobile_phone celular Celular telefone Telefone)
-LGPD_LOGIN_FIELDS=(username user_name UserName Username login Login preferred_username email Email)
+LGPD_LOGIN_FIELDS=(username user_name UserName Username login Login preferred_username email Email masked_login)
 # 2) Textos (estágio 4, rede de segurança): o que vazou sem campo é reconhecido pelo formato. Inclui os campos que o
 #    sink Serilog envia além do "message" (full_message, os da exceção e o RequestPath da requisição), os dos logs do
 #    navegador (ClientMessage, ClientStack e a URL ClientSource), o motivo da pesquisa em logs (case_reference) e o

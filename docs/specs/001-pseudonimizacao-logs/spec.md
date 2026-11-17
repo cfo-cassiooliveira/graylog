@@ -193,7 +193,7 @@ tablet e desktop (formulário à esquerda, resultado à direita a partir de 1024
 
 ## 6. Fora de escopo
 
-- Token no Keycloak (auditoria segue com ids técnicos; o `masked_login` do ADR-0007 do keycloak está proposto, ainda não emitido; o stream e o smoke usam evento sintético).
+- Token no Keycloak (auditoria segue com ids técnicos; o `masked_login` do ADR-0007 do keycloak (aceito em 2026-11-17) é emitido pelos eventos de migração como campo próprio, sem token, e está em `LGPD_LOGIN_FIELDS`; o smoke ainda usa evento sintético para o stream `Identidade - Migração`).
 - Reprocessar logs antigos para gerar token.
 - Pesquisa direto dentro do Graylog (plugin, decorator ou lookup table).
 - Cofre corporativo (a spec usa variável de ambiente/user-secrets; o cofre de produção é escolha da infraestrutura).

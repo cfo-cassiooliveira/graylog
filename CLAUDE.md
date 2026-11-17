@@ -49,6 +49,12 @@ docs/adr/                 decisões
   item 9).
 - Trilha de pesquisas em logs (ADR-0003): stream `Cadastro - Pesquisa em logs (LGPD)` só com `service_name:cadastro-api`
   e `audit_event` `log_search_query_issued`/`log_search_access_denied`, nunca `log_source:browser`.
+- `masked_login` (Keycloak, ADR-0007 do keycloak, aceito): fica em `LGPD_LOGIN_FIELDS` e só os eventos `LEGACY_*` e
+  `RESET_UNKNOWN_USER` o enviam, já mascarado e sem `_token`; o stream `Identidade - Migração` e seus 3 alertas dependem
+  do campo `type`. Retirar o nome da lista ou aceitar outro campo de login do Keycloak exige ADR e caso no smoke.
+- Não rode o provisioner/smoke daqui ao mesmo tempo que o do `../keycloak` (falha intermitente `Parent flow doesn't exist`
+  no Keycloak, causa não comprovada). O Graylog sobe antes dos demais; os projetos que o usam entram com o
+  `docker-compose.graylog.yml` deles (ordem no README do `../keycloak`).
 - **Idioma (Art. I)**: títulos e descrições de streams, alertas, pipelines e regras são texto de interface → **PT-BR**
   (idioma do produto, Art. I.3), padrão `<Sistema> - <Assunto>` (ex.: `Legado - Segurança`). Nomes de campos
   (`service_name`, `log_source`, `http_*`), valores de `tag` e mensagens de log do provisionamento → **inglês**.
