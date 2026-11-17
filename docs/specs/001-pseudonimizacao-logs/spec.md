@@ -30,7 +30,7 @@ por pessoa autorizada, auditada, e documentação igual ao código nos 4 reposit
 | Perfil | O que pode fazer nesta feature |
 |---|---|
 | Investigador (`log-investigator`, OTP obrigatório) | Gerar a consulta do Graylog para um CPF, CNPJ, telefone, e-mail ou login, informando o motivo |
-| Usuário autenticado sem a role | Nada: a tela o leva a `/forbidden`; a chamada direta à API recebe 403 e a tentativa é registrada |
+| Usuário autenticado sem a role | Nada: a tela o leva a `/forbidden` e antes registra a tentativa (`GET /api/v1/log-search/access` responde 403, sem dado digitado); a chamada direta à API também recebe 403 e é registrada |
 | Operação/Segurança (acesso ao Graylog) | Ler logs (máscara + token) e a trilha de pesquisas no stream de auditoria |
 | Desenvolvedor (só ambiente local) | Gerar a consulta com o script local, usando a chave do `.env` |
 
@@ -101,7 +101,7 @@ Cenário: sem permissão
   Quando abro /log-search
   Então o guard da rota me leva a /forbidden, onde vejo "Você não tem permissão para acessar esta página." e o link "Voltar para meu perfil"
   E o menu não mostra "Pesquisa em logs"
-  E uma chamada direta à API responde 403 e a tentativa fica registrada (audit_event=log_search_access_denied)
+  E a tentativa pela tela e uma chamada direta à API (403) ficam registradas (audit_event=log_search_access_denied)
 
 Cenário: role sem OTP nesta autenticação
   Dado que entrei como "log-investigator", mas a sessão não tem acr=otp ou o auth_time passou de 5 minutos
