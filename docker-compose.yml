@@ -8,6 +8,8 @@ services:
     # MongoDB 8.0.38 (Graylog 7.2 suporta 7.x a 8.2.x). Fixado por digest (OWASP A03).
     # Mínimo 8.0.35: as versões anteriores param na inicialização em kernel Linux 6.19+ (SERVER-125742).
     image: mongo:8.0.38@sha256:d97fea17ccb8d004cd137be8dab54d70d0df11be69c9f422aefe4484c8414ab7
+    # Teto de memória: um serviço não derruba os demais na VM do WSL2 (20 GB, ver ~/.wslconfig).
+    mem_limit: 1g
     environment:
       MONGO_INITDB_ROOT_USERNAME: graylog
       MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:?defina MONGODB_PASSWORD no .env}
@@ -24,6 +26,9 @@ services:
   opensearch:
     # OpenSearch 3.7.0 (máximo suportado pelo Graylog 7.2). Fixado por digest.
     image: opensearchproject/opensearch:3.7.0@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9
+    # Teto de memória: um serviço não derruba os demais na VM do WSL2 (20 GB, ver ~/.wslconfig).
+    # Heap de 1g (OPENSEARCH_HEAP) + off-heap/Lucene: o limite fica em 2x o heap.
+    mem_limit: 2g
     environment:
       discovery.type: single-node
       bootstrap.memory_lock: "true"
@@ -48,6 +53,8 @@ services:
   graylog:
     # Graylog 7.2.2. Fixado por digest.
     image: graylog/graylog:7.2.2@sha256:d4cf618fa0b1d44f639e5fe37c77a1b332f74ae69bd6d77f2b9b94bb2f2e067d
+    # Teto de memória: um serviço não derruba os demais na VM do WSL2 (20 GB, ver ~/.wslconfig).
+    mem_limit: 2g
     depends_on:
       mongodb: { condition: service_healthy }
       opensearch: { condition: service_healthy }
