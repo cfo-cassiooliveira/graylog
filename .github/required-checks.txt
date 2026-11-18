@@ -1,0 +1,9 @@
+# Checagens de status obrigatórias para o merge na master (ADR-0002 do Workspace).
+# Um nome de job do .github/workflows/ci.yml por linha, exatamente como o GitHub o exibe.
+# Aplicar (na raiz do repositório): bash C:/Workspace/_templates/github-repo-setup.sh apply cfo-cassiooliveira/graylog --checks-file .github/required-checks.txt
+# Ao renomear ou criar um job, atualize este arquivo e reaplique: um nome errado trava todo PR.
+# Jobs que podem ser PULADOS (SonarQube) e jobs auxiliares não entram aqui.
+ShellCheck
+Trivy (misconfig do compose/Dockerfile e segredos)
+gitleaks (segredos em todo o histórico)
+stack + provisionamento + smoke test
