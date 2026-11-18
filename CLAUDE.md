@@ -56,6 +56,7 @@ docs/adr/                 decisões
 - Rede `logs-read` (ADR-0001 do `../grafana`): o OpenSearch (sem security plugin) entra nela com alias `opensearch` e só leitores
   autorizados (hoje o `opensearch-proxy` somente leitura do Grafana, ADR-0004 do `../grafana`) se juntam com `external: true`. Nunca ponha o OpenSearch na `observability` nem publique a porta
   9200 no host; `scripts/smoke-network.sh` prova isso. Produção: security plugin + usuário somente leitura.
+- Nível dos logs de texto (`16-text-level-from-content.rule`): o Docker marca todo stderr como level 3; para `sonarqube`, `sonarqube-db` e `keycloak-db` o nível real vem do texto (`LOG:`/`INFO` informativo, `WARNING` aviso, `ERROR`/`FATAL`/`PANIC` erro). Tag nova de PostgreSQL entra no regex da regra e ganha caso no smoke.
 - Grafana (`../grafana`): logs JSON do stdout com `tag: grafana`; a regra `19-grafana-json.rule` extrai só `level`, `logger` e `msg`
   e descarta os demais pares (e-mail/login de operador não são indexados; o texto passa pelo mascaramento LGPD). Stream
   `Grafana - Infra` e index set `Grafana` (mesma retenção). Campo novo do JSON do Grafana nunca vira campo sem ADR.

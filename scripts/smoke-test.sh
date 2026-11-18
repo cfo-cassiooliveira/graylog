@@ -118,6 +118,14 @@ jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqub
 jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "sonarqube-db", level: 3, _tag: "sonarqube-db",
   short_message: ("2026-11-09 00:00:00.000 UTC [63] LOG:  checkpoint starting: " + $id)}' | nc -u -w 1 "$GELF_HOST" 12201
 
+# 7b) PostgreSQL do Keycloak (tag keycloak-db): o Docker marca o stderr como level 3, mas "LOG:" é informativo,
+# "WARNING:" é aviso e "FATAL:" continua sendo falha.
+for pg in "LOG:  checkpoint starting" "WARNING:  smoke warning" "FATAL:  smoke failure"; do
+  jq -nc --arg m "2026-11-09 00:00:00.000 UTC [63] ${pg} ${RUN_ID}-kcdb" \
+    '{version: "1.1", _smoke_test: "true", host: "keycloak-db", level: 3, _tag: "keycloak-db", short_message: $m}' \
+    | nc -u -w 1 "$GELF_HOST" 12201
+done
+
 # 8) Keycloak: auditoria via GELF HTTP (como o listener workspace-audit), que precisa de 202 para não usar o fallback.
 keycloak_http_status="$(jq -nc --arg id "$RUN_ID" '{
   version: "1.1", _smoke_test: "true", host: "keycloak", level: 4, _service_name: "keycloak", _log_source: "audit",
@@ -421,6 +429,14 @@ check "SonarQube fora dos streams do legado" "$(jq '(.streams // []) | index("Le
 postgres_message="$(find_message "service_name:sonarqube-db AND message:\"checkpoint starting: ${RUN_ID}\"")"
 check "PostgreSQL do SonarQube: 'LOG:' no stderr vira information em 'SonarQube - Infra'" \
   "$(jq '.level_name == "information" and ((.streams // []) | index("SonarQube - Infra") != null)' <<<"$postgres_message")"
+
+keycloak_db_log="$(find_message "service_name:keycloak-db AND message:\"checkpoint starting ${RUN_ID}-kcdb\"")"
+check "PostgreSQL do Keycloak: 'LOG:' no stderr vira information em 'Keycloak - Servidor'" \
+  "$(jq '.level_name == "information" and ((.streams // []) | index("Keycloak - Servidor") != null)' <<<"$keycloak_db_log")"
+keycloak_db_warning="$(find_message "service_name:keycloak-db AND message:\"smoke warning ${RUN_ID}-kcdb\"")"
+check "PostgreSQL do Keycloak: 'WARNING:' vira warning" "$(jq '.level_name == "warning"' <<<"$keycloak_db_warning")"
+keycloak_db_fatal="$(find_message "service_name:keycloak-db AND message:\"smoke failure ${RUN_ID}-kcdb\"")"
+check "PostgreSQL do Keycloak: 'FATAL:' continua erro (critical)" "$(jq '.level_name == "critical"' <<<"$keycloak_db_fatal")"
 
 check "Keycloak: input GELF HTTP confirma a gravação (202)" "$([[ "$keycloak_http_status" == "202" ]] && echo true || echo false)"
 keycloak_audit_message="$(find_message "service_name:keycloak AND event_id:${RUN_ID}")"

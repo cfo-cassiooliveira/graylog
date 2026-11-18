@@ -331,7 +331,7 @@ pipeline "Legado - enriquecimento"
 stage 0 match pass
 rule "docker: service_name a partir da tag"
 rule "docker: nível real pelo conteúdo"
-rule "sonarqube: nível real pelo conteúdo"
+rule "infra: nível real pelo texto (SonarQube e PostgreSQL)"
 rule "keycloak: campos do log JSON do servidor"
 rule "grafana: campos do log JSON"
 stage 1 match pass
@@ -351,6 +351,8 @@ EOF
 )")"
 # Regras LGPD antigas (ex.: "LGPD: mascarar e-mail e CPF", só do "message") ou de campos retirados da lista.
 remove_stale_rules "LGPD: mascarar" "${lgpd_rule_titles[@]}"
+# Regra renomeada (agora também cobre o PostgreSQL do Keycloak): a antiga sai depois de o pipeline deixar de usá-la.
+remove_stale_rules "sonarqube: nível real"
 # "match pass": cada estágio segue para o próximo mesmo sem regra aplicável (senão o mascaramento LGPD seria pulado).
 # Conectado ao stream padrão e executado antes do roteamento: os campos criados aqui já servem às regras dos streams.
 api POST /system/pipelines/connections/to_pipeline "$(jq -nc --arg p "$pipeline_id" --arg s "$DEFAULT_STREAM_ID" \
