@@ -23,8 +23,8 @@ documentação igual ao código.
 ## Estado das tarefas (tasks.md × git)
 - Concluídas `[x]`: G01-G03, L01, L02, K01, C01-C06.
 - Pendente `[ ]`: X01 (auditoria cruzada final).
-- **Divergência**: o git indica X01 já feita no graylog (commits 7806282 "fecha a auditoria cruzada e amplia o smoke",
-  62e6f10, 9f10d4d; PR #7 da DEV-004 mesclado), mas tasks.md mantém X01 sem marcar. Outros 3 repos não verificados; tasks.md não alterado.
+- X01: rodada documental concluída (commits 7806282 e 8c38ab5); falta o QA E2E ponta a ponta (mesmo CPF nos dois sistemas,
+  consulta pela tela, valores em claro = 0) e o relatório, que exigem a stack completa no ar. Status em tasks.md atualizado.
 
 ## Links
 [spec.md](spec.md) · [plan.md](plan.md) · [tasks.md](tasks.md)

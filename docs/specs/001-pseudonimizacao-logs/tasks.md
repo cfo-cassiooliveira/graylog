@@ -137,6 +137,9 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
   - QA: E2E ponta a ponta — mesmo CPF registrado no legado e no cadastro, consulta pela tela, os dois eventos
     encontrados; trilha de auditoria no stream; nenhum valor em claro (busca pelos valores de teste no Graylog = 0)
   - Pronto quando: relatório sem achado crítico/alto; divergências corrigidas em até 2 rodadas
+  - Estado (2026-11-18): rodada documental concluída (commits 7806282 e 8c38ab5: README, CLAUDE.md, ADRs e smoke alinhados ao código).
+    Pendente: QA E2E ponta a ponta (mesmo CPF nos dois sistemas, consulta pela tela, valores em claro = 0) e o relatório final,
+    que exigem a stack completa no ar
 
 ## Ondas (máx. 4 simultâneas; no máximo 1 tarefa por repositório por onda, salvo arquivos disjuntos declarados)
 
