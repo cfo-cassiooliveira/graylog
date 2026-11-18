@@ -51,7 +51,7 @@ problemas:
      estão (ADR-0003, item 4).
    - **Estágio 4, pelo formato (rede de segurança).** O que vazou sem campo é reconhecido pelo formato nos textos
      (`LGPD_TEXT_FIELDS`: `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `RequestPath`, `ClientMessage`,
-     `ClientStack`, `ClientSource`, `case_reference` e `http_path`). Aqui há
+     `ClientStack`, `ClientSource`, `case_reference`, `http_path`, `Path` e `Location`). Aqui há
      ambiguidade: 11 dígitos sem pontuação podem ser CPF ou celular, e são mascarados como CPF, a máscara que esconde
      mais.
 5. **Fora do escopo** (no texto livre, sem campo estruturado; em campo estruturado de `LGPD_PHONE_FIELDS` o fixo é tratado): endereço, cidade/estado, telefone fixo e CNPJ sem pontuação (14 dígitos se confundem com

@@ -34,7 +34,7 @@ find_message() {
         "cpf_token", "email_token", "Obj_Cpf", "Obj_Cpf_token",
         "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type",
-        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "preferred_username", "masked_login", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
+        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "Path", "Location", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "user", "preferred_username", "masked_login", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -177,12 +177,13 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" --arg t "$short_text" '{
 
 # 14) Campos de texto além do message (ADR-0003, item 8), sem campo estruturado (rede de segurança, estágio 4): URL do
 #     navegador (ClientSource, com e-mail em "%40"), caminho da requisição do Serilog (RequestPath), motivo da pesquisa
-#     (case_reference) e celular com "+55" no message.
+#     (case_reference), campos de caminho/URL do Serilog (Path, Location) e celular com "+55" no message.
 printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
   _correlation_id: ($id + "-textfields"), short_message: ("Textos " + $id + " celular +55 (11) 98765-4321 e +5511987654321"),
   _ClientSource: "https://cadastro.local/usuarios/ana.souza%40gmail.com/editar",
-  _RequestPath: "/api/v1/users/ana.souza@gmail.com", _case_reference: "INC-123.456.789-09" }')" \
+  _RequestPath: "/api/v1/users/ana.souza@gmail.com", _case_reference: "INC-123.456.789-09",
+  _Path: "/api/v1/users/ana.souza@gmail.com/profile", _Location: "https://idp.local/auth?login_hint=ana.souza%40gmail.com&client_id=x" }')" \
   | nc -w 3 "$GELF_HOST" 12201
 
 # 15) CNPJ e e-mail como CAMPO ESTRUTURADO em claro (origem não adaptada): mascarados pelo tipo e trocados no texto.
@@ -288,7 +289,7 @@ check "LGPD (fora do formato): valor curto não corrompe os textos (message, Sta
 # As regras pelo campo gravam todos os campos de texto: o ausente não pode passar a existir vazio (Graylog ignora "").
 empty_text_fields="$(count_messages "correlation_id:${RUN_ID}-typed AND (_exists_:full_message OR _exists_:ExceptionMessage
   OR _exists_:StackTrace OR _exists_:ClientMessage OR _exists_:ClientStack OR _exists_:ClientSource OR _exists_:RequestPath
-  OR _exists_:case_reference OR _exists_:http_path)")"
+  OR _exists_:Path OR _exists_:Location OR _exists_:case_reference OR _exists_:http_path)")"
 check "LGPD (campo estruturado): campos de texto ausentes continuam ausentes (nenhum campo vazio criado)" \
   "$([[ "$typed_message" != "{}" && "$empty_text_fields" == "0" ]] && echo true || echo false)"
 
@@ -303,6 +304,8 @@ check "LGPD (texto): ClientSource com e-mail em %40 mascarado" \
   "$(jq '.ClientSource == "https://cadastro.local/usuarios/ana***@gmail/editar"' <<<"$text_fields_message")"
 check "LGPD (texto): RequestPath e case_reference mascarados" \
   "$(jq '.RequestPath == "/api/v1/users/ana***@gmail" and .case_reference == "INC-***.456.789-**"' <<<"$text_fields_message")"
+check "LGPD (texto): e-mail em campos de caminho/URL (Path, Location) mascarado, inclusive em %40 no query string" \
+  "$(jq '.Path == "/api/v1/users/ana***@gmail/profile" and (.Location | startswith("https://idp.local/auth?login_hint=ana***@gmail&client_id=x"))' <<<"$text_fields_message")"
 check "LGPD (texto): celular com +55 (formatado e sem pontuação) mascarado no message" \
   "$(jq --arg t "Textos ${RUN_ID} celular 11*****4321 e 11*****4321" '.message == $t' <<<"$text_fields_message")"
 
@@ -334,10 +337,45 @@ check "LGPD (client-logs em claro): ClientMessage e ClientStack mascarados, sem 
       or contains("11987654321") or contains("maria.silva")) | not)' <<<"$fieldnames_message")"
 
 # Retenção (LGPD, ADR-0002): os index sets criados pelo provisioner apagam entre 30 e 35 dias.
-retention_ok="$(api "${GRAYLOG_URL}/api/system/indices/index_sets" | jq '[.index_sets[] | select(.title | IN("Legado", "Cadastro", "Keycloak", "SonarQube"))]
-  | length == 4 and all(.rotation_strategy.index_lifetime_min == "P30D" and .rotation_strategy.index_lifetime_max == "P35D"
+retention_ok="$(api "${GRAYLOG_URL}/api/system/indices/index_sets" | jq '[.index_sets[] | select(.title | IN("Legado", "Cadastro", "Keycloak", "SonarQube", "Grafana"))]
+  | length == 5 and all(.rotation_strategy.index_lifetime_min == "P30D" and .rotation_strategy.index_lifetime_max == "P35D"
     and .data_tiering.index_lifetime_min == "P30D" and .data_tiering.index_lifetime_max == "P35D")')"
-check "Retenção: index sets Legado, Cadastro, Keycloak e SonarQube guardam de 30 a 35 dias (P30D–P35D)" "$retention_ok"
+check "Retenção: index sets Legado, Cadastro, Keycloak, SonarQube e Grafana guardam de 30 a 35 dias (P30D–P35D)" "$retention_ok"
+
+# Grafana (projeto ../grafana): JSON no stdout pelo Docker GELF driver (tag grafana). O JSON traz e-mail e login de
+# operador em pares chave/valor e no texto (LGPD): nada disso pode ser indexado em claro.
+grafana_json="$(jq -nc --arg id "$RUN_ID" '{t: "2026-11-17T00:00:00Z", level: "warn", logger: "context",
+  msg: ("Invalid username or password " + $id + " for ana.souza@exemplo.com"), email: "ana.souza@exemplo.com",
+  login: "ana.souza@exemplo.com", user: "ana.souza", remote_addr: "172.18.0.1"}')"
+jq -nc --arg m "$grafana_json" '{version: "1.1", _smoke_test: "true", host: "grafana", short_message: $m, level: 6, _tag: "grafana"}' \
+  | nc -u -w 1 "$GELF_HOST" 12201
+grafana_error_json="$(jq -nc --arg id "$RUN_ID" '{t: "2026-11-17T00:00:00Z", level: "error", logger: "server", msg: ("Grafana smoke failure " + $id)}')"
+jq -nc --arg m "$grafana_error_json" '{version: "1.1", _smoke_test: "true", host: "grafana", short_message: $m, level: 6, _tag: "grafana"}' \
+  | nc -u -w 1 "$GELF_HOST" 12201
+
+grafana_error_message="$(find_message "service_name:grafana AND message:\"Grafana smoke failure ${RUN_ID}\"")"
+check "Grafana: log JSON chega em 'Grafana - Infra' com service_name, nível real (error) e logger extraídos" \
+  "$(jq '.service_name == "grafana" and .level_name == "error" and .logger == "server"
+    and ((.streams // []) | index("Grafana - Infra") != null)' <<<"$grafana_error_message")"
+check "Grafana fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$grafana_error_message")"
+grafana_login_message="$(find_message "service_name:grafana AND message:\"Invalid username or password ${RUN_ID}\"")"
+check "Grafana: nível warn lido do JSON e texto extraído (JSON bruto não é gravado)" \
+  "$(jq '.level_name == "warning" and .logger == "context" and (.message | startswith("{") | not)' <<<"$grafana_login_message")"
+check "Grafana: e-mail de operador mascarado no texto e sem campos email/login/user (LGPD)" \
+  "$(jq '(.message | contains("ana.souza@exemplo.com") | not) and (.message | contains("ana***@exemplo"))
+    and ((.email // "-") == "-") and ((.login // "-") == "-") and ((.user // "-") == "-")
+    and (tostring | contains("ana.souza") | not)' <<<"$grafana_login_message")"
+grafana_clear_count="$(count_messages "\"ana.souza@exemplo.com\" AND \"${RUN_ID}\"")"
+check "Grafana: pesquisa pelo e-mail em claro não encontra o log de login" "$([[ "$grafana_login_message" != "{}" && "$grafana_clear_count" == "0" ]] && echo true || echo false)"
+
+# JSON que o parse_json não reduz a texto simples (ex.: msg como objeto): o texto bruto (login/usuário) não pode ficar em claro (fallback do estágio 1).
+grafana_bad_json='{"level":"warn","msg":{"login":"carla.lima"},"user":"carla.lima"}'
+jq -nc --arg m "$grafana_bad_json" --arg id "${RUN_ID}-badjson" \
+  '{version: "1.1", _smoke_test: "true", host: "grafana", short_message: $m, level: 6, _tag: "grafana", _correlation_id: $id}' \
+  | nc -u -w 1 "$GELF_HOST" 12201
+grafana_bad_message="$(find_message "correlation_id:${RUN_ID}-badjson")"
+check "Grafana: JSON malformado não deixa login/usuário em claro (mensagem substituída por texto fixo)" \
+  "$(jq '(.message == "grafana log discarded: malformed JSON") and (tostring | contains("carla.lima") | not)' <<<"$grafana_bad_message")"
 
 audit_stream="Cadastro - Pesquisa em logs (LGPD)"
 audit_message="$(find_message "correlation_id:${RUN_ID}-audit")"

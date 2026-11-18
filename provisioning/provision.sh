@@ -283,6 +283,7 @@ legado_index="$(ensure_index_set "Legado" "legado" "Logs do sistema legado (rete
 sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e do seu PostgreSQL (retenção limitada).")"
 keycloak_index="$(ensure_index_set "Keycloak" "keycloak" "Auditoria e logs do Keycloak (retenção limitada por LGPD).")"
 cadastro_index="$(ensure_index_set "Cadastro" "cadastro" "Logs do Cadastro (retenção limitada por LGPD).")"
+grafana_index="$(ensure_index_set "Grafana" "grafana" "Logs do Grafana (retenção limitada por LGPD).")"
 
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$(cat "$rule")"; done
 
@@ -298,8 +299,10 @@ LGPD_LOGIN_FIELDS=(username user_name UserName Username login Login preferred_us
 #    sink Serilog envia além do "message" (full_message, os da exceção e o RequestPath da requisição), os dos logs do
 #    navegador (ClientMessage, ClientStack e a URL ClientSource), o motivo da pesquisa em logs (case_reference) e o
 #    único campo de URL do access log do nginx (http_path; o log_format json_access não grava query string nem referer).
+#    Também os campos de caminho/URL que o Serilog do .NET grava (Path, Location): um e-mail na URL (ex.: /users/<e-mail>)
+#    não pode chegar em claro só porque o nome do campo não estava na lista. Campo de path/URL novo entra aqui.
 LGPD_TEXT_FIELDS=(message full_message ExceptionMessage StackTrace RequestPath ClientMessage ClientStack ClientSource
-  case_reference http_path)
+  case_reference http_path Path Location)
 
 lgpd_rule_titles=() lgpd_typed_titles=() lgpd_text_titles=()
 lgpd_generate() { # <modelo> <campos...>: cria as regras e devolve os títulos (um por linha)
@@ -330,8 +333,10 @@ rule "docker: service_name a partir da tag"
 rule "docker: nível real pelo conteúdo"
 rule "sonarqube: nível real pelo conteúdo"
 rule "keycloak: campos do log JSON do servidor"
+rule "grafana: campos do log JSON"
 stage 1 match pass
 rule "nginx: campos do access log JSON"
+rule "grafana: descartar texto de JSON malformado (LGPD)"
 rule "keycloak: descartar eventos do listener padrão (LGPD)"
 stage 2 match pass
 rule "nginx: 5xx é erro"
@@ -369,6 +374,9 @@ security_stream="$(ensure_stream "Legado - Segurança" "Auditoria: login, logout
 # SonarQube (projeto ../sonarqube): servidor e PostgreSQL pelo Docker GELF driver.
 sonarqube_stream="$(ensure_stream "SonarQube - Infra" "Servidor SonarQube e seu PostgreSQL." "$sonarqube_index" true \
   "[$(stream_rule service_name 2 '^sonarqube(-db)?$')]")"
+# Grafana (projeto ../grafana): logs JSON do stdout pelo Docker GELF driver (tag "grafana").
+grafana_stream="$(ensure_stream "Grafana - Infra" "Logs do servidor Grafana (login e e-mail de operador não são indexados)." "$grafana_index" true \
+  "[$(stream_rule service_name 1 grafana)]")"
 # Keycloak (projeto ../keycloak): auditoria via GELF HTTP (listener workspace-audit, sem dados pessoais) e
 # servidor/PostgreSQL pelo Docker GELF driver.
 keycloak_audit_stream="$(ensure_stream "Keycloak - Auditoria" "Logins, falhas e ações administrativas (id técnico do usuário, sem dados pessoais)." "$keycloak_index" true \
@@ -461,4 +469,4 @@ ensure_event "Cadastro - Excesso de pesquisas em logs" "Mais de 10 pesquisas em 
 ensure_event "Cadastro - Acessos negados à pesquisa em logs" "Mais de 2 tentativas negadas (403) de pesquisa em logs do mesmo usuário em 10 minutos." 3 \
   "$cadastro_log_search_stream" "${REAL} AND audit_event:log_search_access_denied" 2 10 investigator_id
 
-log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} cadastro-log-search=${cadastro_log_search_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
+log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} cadastro-log-search=${cadastro_log_search_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} grafana=${grafana_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"

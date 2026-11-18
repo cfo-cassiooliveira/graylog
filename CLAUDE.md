@@ -10,13 +10,14 @@ Graylog local em Docker para receber os logs GELF dos projetos do workspace, com
 ## Estrutura
 
 ```
-docker-compose.yml        mongodb, opensearch, graylog, provisioner; rede externa "observability"
+docker-compose.yml        mongodb, opensearch, graylog, provisioner; rede externa "observability"; rede "logs-read" (só OpenSearch + leitores)
 provisioning/provision.sh provisionamento idempotente via API REST (inputs, index set, pipeline, streams, alertas)
 provisioning/rules/       regras de pipeline versionadas (*.rule)
 provisioning/rules/templates/  modelos das regras LGPD (uma regra gerada por campo das listas LGPD_* do provision.sh)
 scripts/generate-env.sh   gera o .env com segredos aleatórios
 scripts/smoke-test.sh     teste ponta a ponta (ingestão, streams, pipeline, mascaramento LGPD, auditoria; carrega o
                           provision.sh com "source", que só define as funções, para testar o próprio script)
+scripts/smoke-network.sh   teste (no host) de que o OpenSearch só é alcançável por "logs-read"
 docs/adr/                 decisões
 ```
 
@@ -52,6 +53,12 @@ docs/adr/                 decisões
 - `masked_login` (Keycloak, ADR-0007 do keycloak, aceito): fica em `LGPD_LOGIN_FIELDS` e só os eventos `LEGACY_*` e
   `RESET_UNKNOWN_USER` o enviam, já mascarado e sem `_token`; o stream `Identidade - Migração` e seus 3 alertas dependem
   do campo `type`. Retirar o nome da lista ou aceitar outro campo de login do Keycloak exige ADR e caso no smoke.
+- Rede `logs-read` (ADR-0001 do `../grafana`): o OpenSearch (sem security plugin) entra nela com alias `opensearch` e só leitores
+  autorizados (hoje o `opensearch-proxy` somente leitura do Grafana, ADR-0004 do `../grafana`) se juntam com `external: true`. Nunca ponha o OpenSearch na `observability` nem publique a porta
+  9200 no host; `scripts/smoke-network.sh` prova isso. Produção: security plugin + usuário somente leitura.
+- Grafana (`../grafana`): logs JSON do stdout com `tag: grafana`; a regra `19-grafana-json.rule` extrai só `level`, `logger` e `msg`
+  e descarta os demais pares (e-mail/login de operador não são indexados; o texto passa pelo mascaramento LGPD). Stream
+  `Grafana - Infra` e index set `Grafana` (mesma retenção). Campo novo do JSON do Grafana nunca vira campo sem ADR.
 - Não rode o provisioner/smoke daqui ao mesmo tempo que o do `../keycloak` (falha intermitente `Parent flow doesn't exist`
   no Keycloak, causa não comprovada). O Graylog sobe antes dos demais; os projetos que o usam entram com o
   `docker-compose.graylog.yml` deles (ordem no README do `../keycloak`).
@@ -69,3 +76,7 @@ docker compose run --rm provisioner                       # reaplica o provision
 docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner
 # Git Bash (Windows): prefixe com MSYS_NO_PATHCONV=1 (senão o entrypoint vira "C:/Program Files/Git/scripts/...")
 ```
+
+## Grafana
+
+O `../grafana` lê os logs daqui (rede `logs-read`, só pelo proxy somente leitura) e envia os seus por GELF; ordem de subida, testes e limitações em `../grafana/README.md`.
