@@ -4,6 +4,8 @@ Graylog 7.2 + OpenSearch 3.7 + MongoDB 8.0 em Docker, **provisionado automaticam
 pipeline de enriquecimento com mascaramento de dados pessoais, streams e alertas. Os projetos do workspace (a
 começar pelo [legado](../legado), o [cadastro](../cadastro), o [sonarqube](../sonarqube) e o [keycloak](../keycloak)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
 
+**Sumário**: [Como subir](#como-subir) · [O que é provisionado](#o-que-é-provisionado-provisioningprovisionsh-idempotente) · [Como um projeto envia logs](#como-um-projeto-envia-logs) · [Variáveis](#variáveis-de-ambiente-env) · [Teste](#teste-smoke-test-ponta-a-ponta) · [Segurança](#segurança) · [Índice de docs](docs/INDEX.md)
+
 ## Como subir
 
 Pré-requisito: Docker Desktop (≥ 4 GB de memória para o Docker).

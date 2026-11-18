@@ -1,3 +1,5 @@
+> Índice de docs (specs, ADRs, comandos): [docs/INDEX.md](docs/INDEX.md)
+
 # Graylog — infraestrutura de logs
 
 > Herda a Constituição (`C:\Workspace\CLAUDE.md`) e o steering (`C:\Workspace\.claude\rules\`), em especial
