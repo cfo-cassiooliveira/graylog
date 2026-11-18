@@ -25,8 +25,9 @@ A primeira subida leva cerca de 1 a 2 minutos (o OpenSearch e o Graylog iniciali
 | Index set `SonarQube` | Prefixo `sonarqube`, mesma retenção `LOG_RETENTION_DAYS` |
 | Index set `Keycloak` | Prefixo `keycloak`, mesma retenção `LOG_RETENTION_DAYS` |
 | Index set `Cadastro` | Prefixo `cadastro`, mesma retenção `LOG_RETENTION_DAYS` (inclui a trilha de pesquisas em logs) |
-| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube/PostgreSQL (nível lido do texto); JSON do servidor Keycloak vira `level`, `logger`, `thread` e texto; mensagens do listener padrão do Keycloak (`org.keycloak.events`, com username e IP) são descartadas (LGPD) → campos `http_*` do access log JSON do nginx (`legado-web` e `cadastro-web`) → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento parcial de dados pessoais** (LGPD, [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md)) |
-| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak), `Identidade - Migração`, `Cadastro - API`, `Cadastro - Web (nginx)`, `Cadastro - Erros`, `Cadastro - Navegador`, `Cadastro - Segurança` e `Cadastro - Pesquisa em logs (LGPD)` (trilha de auditoria da pesquisa por token, [ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), com `investigator_id`, `data_type`, `case_reference` e `tokens` (texto único), nunca o valor pesquisado; eventos do navegador ficam fora) |
+| Index set `Grafana` | Prefixo `grafana`, mesma retenção `LOG_RETENTION_DAYS` (logs do Grafana; e-mail/login de operador não são indexados) |
+| Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube e do PostgreSQL (SonarQube e Keycloak; nível lido do texto, regra `16-text-level-from-content.rule`); JSON do servidor Keycloak vira `level`, `logger`, `thread` e texto; mensagens do listener padrão do Keycloak (`org.keycloak.events`, com username e IP) são descartadas (LGPD) → campos `http_*` do access log JSON do nginx (`legado-web` e `cadastro-web`) → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento parcial de dados pessoais** (LGPD, [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md)) |
+| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak), `Identidade - Migração`, `Cadastro - API`, `Cadastro - Web (nginx)`, `Cadastro - Erros`, `Cadastro - Navegador`, `Cadastro - Segurança` e `Grafana - Infra` (logs JSON do Grafana, tag `grafana`), `Cadastro - Pesquisa em logs (LGPD)` (trilha de auditoria da pesquisa por token, [ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), com `investigator_id`, `data_type`, `case_reference` e `tokens` (texto único), nunca o valor pesquisado; eventos do navegador ficam fora) |
 | Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; `Legado - Assinatura interna recusada`; API lenta (> 10 requisições acima de 1 s); 5xx no nginx (legado e Cadastro); erros no SonarQube; Keycloak: falhas de login em massa (> 20 em 5 min), auditoria salva no fallback (Graylog ficou indisponível) e erros no servidor; `Identidade - Tentativas de migração inválidas`, `Identidade - Legado indisponível` e `Identidade - Falha ao marcar migração`; Cadastro: erros na aplicação e no navegador, excesso de pesquisas em logs (> 10 do mesmo investigador em 10 min) e acessos negados à pesquisa (> 2 do mesmo usuário em 10 min) |
 
 ### Mascaramento de dados pessoais (LGPD)
@@ -83,7 +84,7 @@ O pipeline trabalha em duas camadas, com regras geradas uma por campo dos modelo
    origem (ADR-0003) e os campos `<Campo>_token` ficam como estão.
 2. **Pelo formato (estágio 4, rede de segurança).** Reconhece o que vazou sem campo nos textos (`LGPD_TEXT_FIELDS`:
    `message`, `full_message`, `ExceptionMessage`, `StackTrace`, `RequestPath`, `ClientMessage`, `ClientStack`,
-   `ClientSource`, `case_reference` e `http_path`, o único campo de URL do access log do nginx). Inclui e-mail em URL
+   `ClientSource`, `case_reference`, `http_path` e os campos de caminho/URL `Path` e `Location`, o único campo de URL do access log do nginx). Inclui e-mail em URL
    (`%40`) e celular com `+55`. Celular sem DDD: no texto só por troca do valor do campo (smoke: "fora do formato ... celular sem DDD trocados por *** no texto"); sem campo, fica fora do escopo (ADR-0003, item 9).
 
 Nome de campo novo entra na lista do seu tipo.
@@ -118,6 +119,8 @@ projeto); detalhes no README do `../keycloak`.
 `LEGACY_*` e `RESET_UNKNOWN_USER`. Só esses eventos trazem `masked_login` (ADR-0007 do keycloak, ex.: `ana***@gmail`),
 sem `_token`; o nome está em `LGPD_LOGIN_FIELDS` e o valor, já mascarado, passa intacto. Nunca adicione outro campo de
 login/e-mail do Keycloak sem ADR. O E2E do `../cadastro` confere que nenhum e-mail completo aparece nesses streams.
+
+**Grafana**: o `../grafana` sobe depois do Graylog (que cria `logs-read`), entra na rede `observability` (a `logs-read` agora é só do OpenSearch e do `opensearch-proxy` do Grafana, ADR-0004 do grafana), e envia o stdout JSON pelo driver GELF com `tag: grafana`. A regra `19-grafana-json.rule` mantém só `level`, `logger` e `msg` (LGPD).
 
 Limitação conhecida: não rode o `provisioner` ou o smoke do Graylog junto com o provisionamento/smoke do `../keycloak`
 (falha intermitente nos fluxos do Keycloak, causa não comprovada); espere um terminar antes de iniciar o outro.
@@ -156,6 +159,7 @@ da origem preservados (inclusive campo aninhado `Obj_Campo`); a pesquisa por `<C
 ## Segurança
 
 - Portas publicadas só em `127.0.0.1` (UI 9000, GELF 12201 e 12202). OpenSearch e MongoDB ficam só na rede interna.
+- Rede `logs-read`: o OpenSearch (sem autenticação) só é alcançável por ela (alias `opensearch`) e pela rede interna, nunca pela `observability`. Leitores autorizados (o `../grafana`) entram com `external: true`. `./scripts/smoke-network.sh` (no host) confere a participação nas redes, a ausência de porta publicada e o acesso/bloqueio.
 - Segredos só no `.env`. A senha do admin chega ao Graylog apenas como SHA-256.
 - A trilha de auditoria da pesquisa em logs depende de inputs GELF que não autenticam o remetente: quem alcança a rede
   pode forjar eventos nela. Em produção, input com TLS + mTLS e rede dedicada (ADR-0003, item 7).
@@ -163,3 +167,7 @@ da origem preservados (inclusive campo aninhado `Obj_Campo`); a pesquisa por `<C
   mascarado parcialmente ainda é dado pessoal: o acesso ao Graylog continua restrito. Os serviços
   continuam proibidos de logar dados pessoais (Art. IV.6).
 - Uso **local/desenvolvimento**. Para produção, veja as ressalvas do ADR-0001 (TLS, Data Node/segurança do OpenSearch).
+
+## Grafana
+
+Dashboards e alertas sobre estes logs (login pelo Keycloak, leitura do OpenSearch por proxy somente leitura): veja [../grafana](../grafana/README.md).

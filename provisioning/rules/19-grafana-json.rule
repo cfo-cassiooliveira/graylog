@@ -1,0 +1,19 @@
+rule "grafana: campos do log JSON"
+when
+  has_field("tag") && to_string($message.tag) == "grafana"
+  && starts_with(to_string($message.message), "{")
+then
+  // O Grafana escreve JSON no stdout (GF_LOG_CONSOLE_FORMAT=json) e o Docker marca tudo como level 6.
+  // Extrai só nível, logger e texto (msg). Os demais pares chave/valor do JSON (email, login, user, remote_addr...)
+  // NÃO viram campos e o JSON bruto é substituído pelo texto: login e e-mail de operador não são indexados (LGPD).
+  // O e-mail que sobrar dentro do texto é mascarado pelo estágio 4 (regras LGPD de "message").
+  let json = parse_json(to_string($message.message));
+  let fields = select_jsonpath(json, { level: "$.level", logger: "$.logger", text: "$.msg" });
+  let levels = {
+    `debug`: 7, `dbug`: 7, `trace`: 7, `info`: 6, `warn`: 4, `warning`: 4,
+    `error`: 3, `eror`: 3, `crit`: 2, `critical`: 2, `fatal`: 2
+  };
+  set_field("level", to_long(levels[lowercase(to_string(fields.level))], 6));
+  set_field("logger", to_string(fields.logger));
+  set_field("message", to_string(fields.text, "grafana log without msg"));
+end
