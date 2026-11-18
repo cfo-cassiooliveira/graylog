@@ -46,7 +46,7 @@ problemas:
      valor é trocado pela máscara em todos os textos, como palavra inteira. Por isso `11987654321` num campo `Phone`
      vira `11*****4321`. Valor fora do formato do tipo vira `***`, para nunca ficar em claro, e também é trocado por
      `***` nos textos; só não é trocado nos textos quando é curto: login/e-mail com menos de 4 caracteres e
-     CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos no Graylog (na origem a contagem é só de dígitos, ADR-0003 item 10) (ADR-0003, item 10), para `api` não corromper `Legado.Api`. Valor que já
+     CPF/telefone com menos de 8 dígitos e CNPJ com menos de 8 caracteres alfanuméricos no Graylog (na origem a contagem é só de dígitos, ADR-0003 item 10), para `api` não corromper `Legado.Api`. Valor que já
      chega no formato de máscara (`***.456.789-**`, `mar***`, `a***@gmail`...) e os campos `<Campo>_token` ficam como
      estão (ADR-0003, item 4).
    - **Estágio 4, pelo formato (rede de segurança).** O que vazou sem campo é reconhecido pelo formato nos textos
@@ -80,10 +80,10 @@ problemas:
   - O reconhecimento é por padrão de texto: campos fora das listas e formatos não previstos passam. Por isso a
     origem continua proibida de logar dados pessoais (Art. IV.6); o Graylog é a rede de segurança, não a única
     proteção.
-  - As APIs do Legado e do Cadastro já mascaram como `***@***` antes de enviar, o que é mais restritivo. Os formatos
-    convivem até essas APIs serem alinhadas.
+  - As APIs do Legado e do Cadastro já enviam o formato deste ADR (client-logs mascarados na origem, ADR-0003 do legado,
+    item 6); não há mais convivência de formatos.
 - **Ações decorrentes**:
   - O smoke test confere cada formato, cada camada e cada campo.
   - Nome de campo novo entra na lista `LGPD_*` do seu tipo.
-  - A regra do campo estruturado está no CLAUDE.md do legado, do cadastro e do keycloak e no código que envia ao
-    Graylog (`LoggingSetup` do legado, `GelfMessageFactory` do keycloak).
+  - A regra do campo estruturado está no CLAUDE.md do legado e do cadastro, no `doc/reference.md` do keycloak e no código
+    que envia ao Graylog (`LoggingSetup` do legado, `GelfMessageFactory` do keycloak).

@@ -81,7 +81,7 @@ Fontes:
      propriedade pela máscara e adiciona `<Campo>_token`. O Serilog renderiza `message`/`full_message` depois dos
      enrichers, então o texto já sai mascarado.
    - **Cadastro**: passa a enviar ao Graylog (Serilog + GELF TCP, como o legado) já com o mesmo enricher.
-   - **Keycloak**: nada muda; a auditoria envia ids técnicos. O `masked_login` do ADR-0007 do keycloak é emitido pelos eventos de migração (sem token), como campo GELF próprio já no formato de máscara, e `masked_login` está em `LGPD_LOGIN_FIELDS`: o valor passa intacto pelo pipeline. O smoke ainda usa evento sintético para o stream `Identidade - Migração`.
+   - **Keycloak**: nada muda; a auditoria envia ids técnicos. O `masked_login` do ADR-0007 do keycloak é emitido pelos eventos de migração (sem token), como campo GELF próprio já no formato de máscara, e `masked_login` está em `LGPD_LOGIN_FIELDS`: o valor passa intacto quando tem a forma `abc***` ou `x***@dominio`; identificador de 1 a 3 caracteres sem `@` (ex.: `a***`) vira `***`. O smoke ainda usa evento sintético para o stream `Identidade - Migração`.
    - **nginx**: sem dado pessoal em campo estruturado; segue só com a rede de segurança do pipeline.
 4. **Graylog continua como rede de segurança, só com máscara** (ADR-0002, estágios 3 e 4). O pipeline **não** gera
    token, porque não tem HMAC e qualquer chave numa regra ou lookup table ficaria visível na UI/API. As regras passam a
