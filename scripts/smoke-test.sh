@@ -240,6 +240,13 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
   _ClientStack: "at save(ana.souza@gmail.com 12345678909)" }')" \
   | nc -w 3 "$GELF_HOST" 12201
 
+# 18b) masked_login do Keycloak com 1 a 3 caracteres antes de *** (A1 da auditoria): passa intacto; valor em claro é mascarado.
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{
+  version: "1.1", _smoke_test: "true", host: "smoke-test", level: 6, _service_name: "legado-api",
+  _correlation_id: ($id + "-maskedlogin"), short_message: ("Masked login " + $id),
+  _masked_login: "a***", _login: "ab***", _username: "x***@gmail", _user_name: "joana", _preferred_username: "e2e***" }')" \
+  | nc -w 3 "$GELF_HOST" 12201
+
 api_message="$(find_message "correlation_id:${RUN_ID} AND service_name:legado-api")"
 check "GELF TCP ingerido (legado-api)" "$(jq 'has("message")' <<<"$api_message")"
 check "Marca smoke_test gravada (alertas ignoram mensagens sintéticas)" "$(jq '.smoke_test == "true"' <<<"$api_message")"
@@ -333,6 +340,11 @@ check "LGPD (nomes de campo): username, user_name, login e preferred_username ma
   "$(jq '.username == "mar***" and .user_name == "mar***" and .login == "mar***" and .preferred_username == "mar***"' <<<"$fieldnames_message")"
 check "LGPD (nomes de campo): masked_login do Keycloak (ADR-0007) já mascarado passa intacto" \
   "$(jq '.masked_login == "ana***@gmail"' <<<"$fieldnames_message")"
+maskedlogin_message="$(find_message "correlation_id:${RUN_ID}-maskedlogin")"
+check "LGPD (masked_login): a*** e ab*** (1 a 3 caracteres antes de ***) e x***@gmail passam intactos, sem virar ***" \
+  "$(jq '.login == "ab***" and .username == "x***@gmail" and .preferred_username == "e2e***"' <<<"$maskedlogin_message")"
+check "LGPD (masked_login): masked_login a*** passa intacto e login em claro (joana) continua mascarado (joa***)" \
+  "$(jq '.masked_login == "a***" and .user_name == "joa***" and (tostring | contains("joana") | not)' <<<"$maskedlogin_message")"
 check "LGPD (nomes de campo): CPF e CNPJ em maiúsculas mascarados pelo tipo" \
   "$(jq '.CPF == "***.456.789-**" and .CNPJ == "12.3**.***/***1-90"' <<<"$fieldnames_message")"
 check "LGPD (fora do formato): CPF de 9 e CNPJ de 13 dígitos viram *** no campo e no texto" \

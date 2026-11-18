@@ -120,7 +120,7 @@ projeto); detalhes no README do `../keycloak`.
 **Migração do Legado**: a auditoria do Keycloak chega pelo GELF HTTP (12202) e o stream `Identidade - Migração` reúne
 `LEGACY_*` e `RESET_UNKNOWN_USER`. Só os seis tipos do ADR-0007 (`LEGACY_USER_NOT_FOUND`, `LEGACY_PASSWORD_MISMATCH`,
 `LEGACY_ACCOUNT_LOCKED`, `LEGACY_ALREADY_MIGRATED`, `RESET_UNKNOWN_USER`, `LEGACY_UNAVAILABLE`) trazem `masked_login` (ex.: `ana***@gmail`),
-sem `_token`; o nome está em `LGPD_LOGIN_FIELDS` e o valor, já mascarado, passa intacto quando tem a forma `abc***` ou `x***@dominio`; identificador de 1 a 3 caracteres sem `@` (ex.: `a***`) vira `***`. Nunca adicione outro campo de
+sem `_token`; o nome está em `LGPD_LOGIN_FIELDS` e o valor, já mascarado, passa intacto quando tem a forma `abc***`, `a***` (1 a 3 caracteres antes de `***`) ou `x***@dominio`; valor em claro é mascarado como qualquer login Nunca adicione outro campo de
 login/e-mail do Keycloak sem ADR. O E2E do `../cadastro` confere que nenhum e-mail completo aparece nesses streams.
 
 **Grafana**: o `../grafana` sobe depois do Graylog (que cria `logs-read`), entra na rede `observability` (a `logs-read` agora é só do OpenSearch e do `opensearch-proxy` do Grafana, ADR-0004 do grafana), e envia o stdout JSON pelo driver GELF com `tag: grafana`. A regra `19-grafana-json.rule` mantém só `level`, `logger` e `msg` (LGPD).

@@ -5,17 +5,17 @@ then
   // Modelo: o provision.sh gera uma regra por campo de LGPD_LOGIN_FIELDS (troca __FIELD__ pelo nome do campo).
   // O nome do campo diz o tipo do dado: nada é adivinhado (ADR-0002). No texto livre um login é só uma palavra;
   // ele só é reconhecido por vir num desses campos.
-  // 0) Valor que já chega mascarado da origem (ADR-0003: mar*** ou ana***/a***@gmail) fica como está e não é
+  // 0) Valor que já chega mascarado da origem (ADR-0003: mar***, a*** ou ana***/a***@gmail) fica como está e não é
   //    trocado nos textos. O campo UserName_token nunca é alterado (nenhuma regra o lê nem o grava).
   let raw = to_string($message.__FIELD__);
-  let already_masked = regex_replace(pattern: "(?s)^(?![^@*\\s]{1,3}\\*{3}@[^.@*\\s]*\\z|[^@*\\s]{3}\\*{3}\\z).*", value: raw, replacement: "");
+  let already_masked = regex_replace(pattern: "(?s)^(?![^@*\\s]{1,3}\\*{3}@[^.@*\\s]*\\z|[^@*\\s]{1,3}\\*{3}\\z).*", value: raw, replacement: "");
   // 1) Máscara do ADR-0007 do keycloak (minúsculas; até 3 caracteres, 1 se tiver até 3):
   //    e-mail -> ana***@gmail     outro login -> mar***
   //    Menos de 4 caracteres é fora do formato (ADR-0003, item 10) e vira ***, como qualquer resultado inválido.
   let normalized = lowercase(regex_replace(pattern: "^\\s+|\\s+\\z", value: raw, replacement: ""));
   let with_email = regex_replace(pattern: "(?s)^(?=.{4})(?:([^@]{3})(?=[^@])|([^@]))[^@]*@([^.@]*).*$", value: normalized, replacement: "$1$2***@$3");
   let formatted = regex_replace(pattern: "(?s)^([^@]{3})[^@]+$", value: with_email, replacement: "$1***");
-  let generated = regex_replace(pattern: "(?s)^(?![^@*\\s]{1,3}\\*{3}@[^.@*\\s]*\\z|[^@*\\s]{3}\\*{3}\\z).*", value: formatted, replacement: "***");
+  let generated = regex_replace(pattern: "(?s)^(?![^@*\\s]{1,3}\\*{3}@[^.@*\\s]*\\z|[^@*\\s]{1,3}\\*{3}\\z).*", value: formatted, replacement: "***");
   // A linguagem do pipeline não tem "if": escolhe o valor já mascarado (antes da quebra de linha) ou o gerado.
   let masked = regex_replace(pattern: "(?s)^([^\\n]+)\\n.*|^\\n", value: concat(already_masked, concat("\n", generated)), replacement: "$1");
   set_field("__FIELD__", masked);
