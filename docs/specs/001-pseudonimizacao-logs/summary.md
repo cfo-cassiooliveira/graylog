@@ -23,8 +23,9 @@ documentação igual ao código.
 ## Estado das tarefas (tasks.md × git)
 - Concluídas `[x]`: G01-G03, L01, L02, K01, C01-C06.
 - Pendente `[ ]`: X01 (auditoria cruzada final).
-- X01: rodada documental concluída (commits 7806282 e 8c38ab5); falta o QA E2E ponta a ponta (mesmo CPF nos dois sistemas,
-  consulta pela tela, valores em claro = 0) e o relatório, que exigem a stack completa no ar. Status em tasks.md atualizado.
+- X01: rodada documental concluída (commits 7806282 e 8c38ab5) e QA E2E executado em 2026-11-18 ([x01-report.md](x01-report.md)): consulta pela
+  tela, trilha de auditoria e valores em claro = 0 comprovados, sem achado crítico/alto. Segue `[ ]`: os eventos do mesmo CPF nos dois sistemas
+  foram simulados (nenhum log de produção grava campo com token; achado M1).
 
 ## Links
 [spec.md](spec.md) · [plan.md](plan.md) · [tasks.md](tasks.md)

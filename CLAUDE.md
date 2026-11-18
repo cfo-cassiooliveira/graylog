@@ -52,8 +52,9 @@ docs/adr/                 decisões
   item 9).
 - Trilha de pesquisas em logs (ADR-0003): stream `Cadastro - Pesquisa em logs (LGPD)` só com `service_name:cadastro-api`
   e `audit_event` `log_search_query_issued`/`log_search_access_denied`, nunca `log_source:browser`.
-- `masked_login` (Keycloak, ADR-0007 do keycloak, aceito): fica em `LGPD_LOGIN_FIELDS` e só os eventos `LEGACY_*` e
-  `RESET_UNKNOWN_USER` o enviam, já mascarado e sem `_token`; o stream `Identidade - Migração` e seus 3 alertas dependem
+- `masked_login` (Keycloak, ADR-0007 do keycloak, aceito): fica em `LGPD_LOGIN_FIELDS` e só os seis tipos do ADR-0007
+  (`LEGACY_USER_NOT_FOUND`, `LEGACY_PASSWORD_MISMATCH`, `LEGACY_ACCOUNT_LOCKED`, `LEGACY_ALREADY_MIGRATED`,
+  `RESET_UNKNOWN_USER`, `LEGACY_UNAVAILABLE`) o enviam, já mascarado (o valor passa intacto quando tem a forma `abc***` ou `x***@dominio`; identificador de 1 a 3 caracteres sem `@` (ex.: `a***`) vira `***`) e sem `_token`; o stream `Identidade - Migração` e seus 3 alertas dependem
   do campo `type`. Retirar o nome da lista ou aceitar outro campo de login do Keycloak exige ADR e caso no smoke.
 - Rede `logs-read` (ADR-0001 do `../grafana`): o OpenSearch (sem security plugin) entra nela com alias `opensearch` e só leitores
   autorizados (hoje o `opensearch-proxy` somente leitura do Grafana, ADR-0004 do `../grafana`) se juntam com `external: true`. Nunca ponha o OpenSearch na `observability` nem publique a porta
