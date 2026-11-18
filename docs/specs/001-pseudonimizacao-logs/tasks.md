@@ -129,18 +129,18 @@ Pré-condição do graylog: o debugger termina as correções em `provision.sh`,
 
 ## Fechamento
 
-- [ ] **X01** [GL][LG][CD][KC] — Auditoria cruzada documentação × código · `code-reviewer` + `qa-engineer`
+- [x] **X01** [GL][LG][CD][KC] — Auditoria cruzada documentação × código · `code-reviewer` + `qa-engineer`
   - Depende de: todas as anteriores
   - Escopo: README, CLAUDE.md, ADRs (graylog docs/adr 0002/0003, legado 0003, keycloak doc/adr 0002/0007) e comentários nos 4 repos ×
     código, regras, smoke e testes. Cada afirmação sobre formato, campo, stream, fluxo ou garantia precisa de teste
     ou smoke que a prove; o resto é corrigido ou removido
-  - QA: E2E ponta a ponta — mesmo CPF registrado no legado e no cadastro, consulta pela tela, os dois eventos
-    encontrados; trilha de auditoria no stream; nenhum valor em claro (busca pelos valores de teste no Graylog = 0)
+  - QA: E2E ponta a ponta — mesmo login/e-mail registrado no legado e logado no cadastro (o Legado não tem CPF), consulta pela tela,
+    os eventos reais dos dois serviços encontrados; trilha de auditoria no stream; nenhum valor em claro (busca pelos valores de teste no Graylog = 0)
   - Pronto quando: relatório sem achado crítico/alto; divergências corrigidas em até 2 rodadas
-  - Estado (2026-11-18): rodada documental concluída (commits 7806282 e 8c38ab5: README, CLAUDE.md, ADRs e smoke alinhados ao código).
-    QA E2E executado na stack real e relatório em [x01-report.md](x01-report.md): consulta pela tela, trilha de auditoria e valores em claro = 0
-    comprovados; sem achado crítico/alto. Pendente: o cenário "mesmo CPF nos dois sistemas" só foi feito com eventos GELF simulados, porque nenhum
-    ponto de log de produção grava campo `{Cpf}`/telefone/login com token (achado M1); decidir o ponto de log real antes de marcar `[x]`
+  - Estado (2026-11-18): concluída. Rodada documental (commits 7806282 e 8c38ab5) e E2E real, sem GELF simulado, em [x01-report.md](x01-report.md):
+    login/e-mail/celular do mesmo usuário gerados pelo fluxo do Legado (cadastro e login) e do Cadastro (login); consulta pela tela `/log-search`
+    acha os eventos reais de `legado-api` e `cadastro-api`; trilha de auditoria no stream; valores em claro = 0. Achado M1 resolvido (pontos de log reais);
+    sem achado crítico/alto. Spec repetível: `cadastro/e2e/tests/zz-x01-log-search.spec.js` (`./scripts/e2e.sh --project=desktop zz-x01`)
 
 ## Ondas (máx. 4 simultâneas; no máximo 1 tarefa por repositório por onda, salvo arquivos disjuntos declarados)
 
