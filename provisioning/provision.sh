@@ -284,6 +284,8 @@ sonarqube_index="$(ensure_index_set "SonarQube" "sonarqube" "Logs do SonarQube e
 keycloak_index="$(ensure_index_set "Keycloak" "keycloak" "Auditoria e logs do Keycloak (retenção limitada por LGPD).")"
 cadastro_index="$(ensure_index_set "Cadastro" "cadastro" "Logs do Cadastro (retenção limitada por LGPD).")"
 grafana_index="$(ensure_index_set "Grafana" "grafana" "Logs do Grafana (retenção limitada por LGPD).")"
+# RabbitMQ (ADR-0004): logs de infraestrutura sem dados pessoais; mesma retenção dos demais (LOG_RETENTION_DAYS).
+rabbitmq_index="$(ensure_index_set "RabbitMQ" "rabbitmq" "Logs do broker RabbitMQ (infraestrutura, retenção limitada).")"
 
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$(cat "$rule")"; done
 
@@ -379,6 +381,10 @@ sonarqube_stream="$(ensure_stream "SonarQube - Infra" "Servidor SonarQube e seu 
 # Grafana (projeto ../grafana): logs JSON do stdout pelo Docker GELF driver (tag "grafana").
 grafana_stream="$(ensure_stream "Grafana - Infra" "Logs do servidor Grafana (login e e-mail de operador não são indexados)." "$grafana_index" true \
   "[$(stream_rule service_name 1 grafana)]")"
+# RabbitMQ (projeto ../rabbitmq, ADR-0004): o Fluent Bit lê o log JSON do broker e envia por GELF TCP só time, level
+# (numérico syslog, convertido na origem), o texto e service_name/tag "rabbitmq". Não precisa de regra de pipeline própria.
+rabbitmq_stream="$(ensure_stream "RabbitMQ - Infra" "Logs do broker RabbitMQ (usuários técnicos, sem dados pessoais)." "$rabbitmq_index" true \
+  "[$(stream_rule service_name 1 rabbitmq)]")"
 # Keycloak (projeto ../keycloak): auditoria via GELF HTTP (listener workspace-audit, sem dados pessoais) e
 # servidor/PostgreSQL pelo Docker GELF driver.
 keycloak_audit_stream="$(ensure_stream "Keycloak - Auditoria" "Logins, falhas e ações administrativas (id técnico do usuário, sem dados pessoais)." "$keycloak_index" true \
@@ -451,6 +457,17 @@ ensure_event "Keycloak - Auditoria salva no fallback" "O Graylog ficou indispon�
   "$keycloak_audit_stream" "${REAL} AND type:AUDIT_FALLBACK_USED" 0 5
 ensure_event "Keycloak - Erros no servidor" "Qualquer Error/Critical no Keycloak ou no seu PostgreSQL nos últimos 5 minutos." 2 \
   "$keycloak_server_stream" "${REAL} AND level:<=3" 0 5
+# RabbitMQ (ADR-0004): login recusado tem alerta próprio. Formato real (RabbitMQ 4.3, conferido por
+# ../rabbitmq/scripts/e2e-graylog.sh): cada recusa gera 2 linhas com "invalid credentials": no management, 2 warnings
+# ("User '<u>' failed to authenticate: ..." e "HTTP access denied: ..."); no AMQP, 1 warning ("... failed to
+# authenticate ...") e 1 error ("Error on AMQP connection ...: PLAIN login refused: ..."). Por isso os erros excluem
+# "invalid credentials" e o alerta de login conta só "failed to authenticate" (1 linha por tentativa, nos dois protocolos).
+# Os demais erros isolados (cliente que derruba a conexão, handshake expirado) são ruído; 5 ou mais em 5 minutos indicam
+# problema persistente.
+ensure_event "RabbitMQ - Erros no broker" "5 ou mais Error/Critical no broker em 5 minutos (fora logins recusados)." 2 \
+  "$rabbitmq_stream" "${REAL} AND level:<=3 AND NOT message:\"invalid credentials\"" 4 5
+ensure_event "RabbitMQ - Falhas de login em massa" "Mais de 20 logins recusados (AMQP ou management) em 5 minutos (força bruta, credencial vazada ou expirada)." 3 \
+  "$rabbitmq_stream" "${REAL} AND message:\"failed to authenticate\"" 20 5
 
 ensure_event "Identidade - Tentativas de migração inválidas" "Mais de 30 logins/resets inválidos de usuários fora do Keycloak em 5 minutos (enumeração / credential stuffing)." 3 \
   "$migration_stream" "${REAL} AND (type:LEGACY_USER_NOT_FOUND OR type:LEGACY_PASSWORD_MISMATCH OR type:LEGACY_ACCOUNT_LOCKED OR type:RESET_UNKNOWN_USER)" 30 5
@@ -471,4 +488,4 @@ ensure_event "Cadastro - Excesso de pesquisas em logs" "Mais de 10 pesquisas em 
 ensure_event "Cadastro - Acessos negados à pesquisa em logs" "Mais de 2 tentativas negadas (403) de pesquisa em logs do mesmo usuário em 10 minutos." 3 \
   "$cadastro_log_search_stream" "${REAL} AND audit_event:log_search_access_denied" 2 10 investigator_id
 
-log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} cadastro-log-search=${cadastro_log_search_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} grafana=${grafana_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"
+log "done (streams: cadastro-api=${cadastro_api_stream} cadastro-security=${cadastro_security_stream} cadastro-log-search=${cadastro_log_search_stream} migration=${migration_stream} api=${api_stream} web=${web_stream} infra=${infra_stream} errors=${errors_stream} browser=${browser_stream} security=${security_stream} sonarqube=${sonarqube_stream} grafana=${grafana_stream} rabbitmq=${rabbitmq_stream} keycloak-audit=${keycloak_audit_stream} keycloak-server=${keycloak_server_stream})"

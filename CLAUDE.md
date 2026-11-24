@@ -63,6 +63,12 @@ docs/adr/                 decisões
 - Grafana (`../grafana`): logs JSON do stdout com `tag: grafana`; a regra `19-grafana-json.rule` extrai só `level`, `logger` e `msg`
   e descarta os demais pares (e-mail/login de operador não são indexados; o texto passa pelo mascaramento LGPD). Stream
   `Grafana - Infra` e index set `Grafana` (mesma retenção). Campo novo do JSON do Grafana nunca vira campo sem ADR.
+- RabbitMQ (`../rabbitmq`, ADR-0004): Fluent Bit → GELF TCP com só `time`, `level` (numérico na origem), texto e
+  `service_name`/`tag` `rabbitmq`; sem regra de pipeline própria. Stream `RabbitMQ - Infra`, index set `RabbitMQ` (mesma
+  retenção) e alertas `RabbitMQ - Erros no broker` (5+ `level<=3` em 5 min, sem `invalid credentials`) e `RabbitMQ -
+  Falhas de login em massa` (> 20 `failed to authenticate` em 5 min: 1 linha por tentativa; `invalid credentials` vem 2x).
+  A regra 15 não age na tag `rabbitmq`. Usuário do broker no texto **não** é mascarado (risco residual aceito, ADR-0004) (e-mail/CPF no
+  texto caem na rede de segurança do `message`). Campo novo do coletor exige revisão do ADR-0004 e caso no smoke.
 - Não rode o provisioner/smoke daqui ao mesmo tempo que o do `../keycloak` (falha intermitente `Parent flow doesn't exist`
   no Keycloak, causa não comprovada). O Graylog sobe antes dos demais; os projetos que o usam entram com o
   `docker-compose.graylog.yml` deles (ordem no README do `../keycloak`).

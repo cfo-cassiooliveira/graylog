@@ -34,7 +34,7 @@ find_message() {
         "cpf_token", "email_token", "Obj_Cpf", "Obj_Cpf_token",
         "Cpf_token", "Cnpj_token", "Phone_token", "UserName_token", "Email_token", "service_name", "streams",
         "level_name", "http_status", "http_path", "http_request_time", "correlation_id", "smoke_test", "user_id", "logger", "type",
-        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "Path", "Location", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "user", "preferred_username", "masked_login", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id"] }')")"
+        "ClientSource", "ClientMessage", "ClientStack", "RequestPath", "Path", "Location", "case_reference", "phone", "mobilePhone", "mobile_phone", "celular", "telefone", "username", "user_name", "login", "user", "preferred_username", "masked_login", "CPF", "CNPJ", "audit_event", "investigator_id", "data_type", "tokens", "trace_id", "level", "time"] }')")"
     if [[ "$(jq '.datarows | length' <<<"$result")" -gt 0 ]]; then
       jq -c '[.schema | map(.field)] as [$f] | .datarows[0] | [$f, .] | transpose | map({(.[0]): .[1]}) | add' <<<"$result"
       return 0
@@ -357,10 +357,10 @@ check "LGPD (client-logs em claro): ClientMessage e ClientStack mascarados, sem 
       or contains("11987654321") or contains("maria.silva")) | not)' <<<"$fieldnames_message")"
 
 # Retenção (LGPD, ADR-0002): os index sets criados pelo provisioner apagam entre 30 e 35 dias.
-retention_ok="$(api "${GRAYLOG_URL}/api/system/indices/index_sets" | jq '[.index_sets[] | select(.title | IN("Legado", "Cadastro", "Keycloak", "SonarQube", "Grafana"))]
-  | length == 5 and all(.rotation_strategy.index_lifetime_min == "P30D" and .rotation_strategy.index_lifetime_max == "P35D"
+retention_ok="$(api "${GRAYLOG_URL}/api/system/indices/index_sets" | jq '[.index_sets[] | select(.title | IN("Legado", "Cadastro", "Keycloak", "SonarQube", "Grafana", "RabbitMQ"))]
+  | length == 6 and all(.rotation_strategy.index_lifetime_min == "P30D" and .rotation_strategy.index_lifetime_max == "P35D"
     and .data_tiering.index_lifetime_min == "P30D" and .data_tiering.index_lifetime_max == "P35D")')"
-check "Retenção: index sets Legado, Cadastro, Keycloak, SonarQube e Grafana guardam de 30 a 35 dias (P30D–P35D)" "$retention_ok"
+check "Retenção: index sets Legado, Cadastro, Keycloak, SonarQube, Grafana e RabbitMQ guardam de 30 a 35 dias (P30D–P35D)" "$retention_ok"
 
 # Grafana (projeto ../grafana): JSON no stdout pelo Docker GELF driver (tag grafana). O JSON traz e-mail e login de
 # operador em pares chave/valor e no texto (LGPD): nada disso pode ser indexado em claro.
@@ -396,6 +396,99 @@ jq -nc --arg m "$grafana_bad_json" --arg id "${RUN_ID}-badjson" \
 grafana_bad_message="$(find_message "correlation_id:${RUN_ID}-badjson")"
 check "Grafana: JSON malformado não deixa login/usuário em claro (mensagem substituída por texto fixo)" \
   "$(jq '(.message == "grafana log discarded: malformed JSON") and (tostring | contains("carla.lima") | not)' <<<"$grafana_bad_message")"
+
+# RabbitMQ (projeto ../rabbitmq, ADR-0004): formato real do Fluent Bit (GELF TCP): time, level numérico syslog (já
+# convertido na origem), texto do broker em short_message e service_name/tag "rabbitmq". Uma conexão com: aviso,
+# notice, 5 erros do broker, 23 logins recusados no formato real do RabbitMQ 4.3 (conferido por
+# ../rabbitmq/scripts/e2e-graylog.sh: 2 linhas por tentativa; management = 2 warnings, AMQP = 1 warning + 1 error):
+# 11 no management (admin), 11 no AMQP (smoke-app) e 1 no AMQP com usuário em forma de e-mail; e 1 erro real cujo
+# texto traz "[info]" vindo do cliente (a regra 15 não pode rebaixá-lo).
+rmq_id="${RUN_ID}-rmq"
+rmq_gelf() { # <level> <texto>
+  jq -nc --argjson l "$1" --arg m "$2" '{version: "1.1", _smoke_test: "true", host: "rabbitmq", level: $l,
+    short_message: $m, _time: "2026-11-23 10:00:00.000000+00:00", _service_name: "rabbitmq", _tag: "rabbitmq"}'
+}
+{
+  printf '%s\0' "$(rmq_gelf 4 "closing AMQP connection <0.900.0> (172.18.0.5:41234 -> 172.18.0.3:5672): client unexpectedly closed TCP connection ${rmq_id}-warn")"
+  printf '%s\0' "$(rmq_gelf 5 "Ready to start client connection listeners ${rmq_id}-notice")"
+  for n in 1 2 3 4 5; do
+    printf '%s\0' "$(rmq_gelf 3 "Error on AMQP connection <0.90${n}.0>: handshake_timeout ${rmq_id}-err")"
+  done
+  for _ in $(seq 1 11); do
+    printf '%s\0' "$(rmq_gelf 4 "User 'admin' failed to authenticate: user 'admin' - invalid credentials ${rmq_id}-http")"
+    printf '%s\0' "$(rmq_gelf 4 "HTTP access denied: user 'admin' - invalid credentials ${rmq_id}-http")"
+    printf '%s\0' "$(rmq_gelf 4 "User 'smoke-app' failed to authenticate: user 'smoke-app' - invalid credentials ${rmq_id}-amqp")"
+    printf '%s\0' "$(rmq_gelf 3 "$(printf 'Error on AMQP connection <0.950.0> (172.18.0.5:41234 -> 172.18.0.3:5672, state: starting):\n%s' \
+      "PLAIN login refused: user 'smoke-app' - invalid credentials ${rmq_id}-amqp")")"
+  done
+  printf '%s\0' "$(rmq_gelf 4 "User 'ana.souza@exemplo.com' failed to authenticate: user 'ana.souza@exemplo.com' - invalid credentials ${rmq_id}-authmail")"
+  printf '%s\0' "$(rmq_gelf 3 "$(printf 'Error on AMQP connection <0.951.0> (172.18.0.5:41236 -> 172.18.0.3:5672, state: starting):\n%s' \
+    "PLAIN login refused: user 'ana.souza@exemplo.com' - invalid credentials ${rmq_id}-authmail")")"
+  printf '%s\0' "$(rmq_gelf 3 "$(printf 'Error on AMQP connection <0.952.0> (172.18.0.5:41238 -> 172.18.0.3:5672, state: starting):\n%s' \
+    "PLAIN login refused: user 'probe-[info]' - invalid credentials ${rmq_id}-lvl")")"
+} | nc -w 3 "$GELF_HOST" 12201
+
+rmq_error_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-err\"")"
+check "RabbitMQ: log do broker chega em 'RabbitMQ - Infra' com service_name, level 3 numérico e level_name error" \
+  "$(jq '.service_name == "rabbitmq" and .level == 3 and .level_name == "error"
+    and ((.streams // []) | index("RabbitMQ - Infra") != null)' <<<"$rmq_error_message")"
+check "RabbitMQ fora dos streams do legado e do Cadastro" \
+  "$(jq '(.streams // []) | (index("Legado - Erros") == null and index("Cadastro - Erros") == null)' <<<"$rmq_error_message")"
+rmq_warn_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-warn\"")"
+rmq_notice_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-notice\"")"
+check "RabbitMQ: nível numérico preservado (4 warning, 5 notice) e campo time da origem mantido" \
+  "$(jq -s '.[0].level == 4 and .[0].level_name == "warning" and .[1].level == 5 and .[1].level_name == "notice"
+    and .[0].time == "2026-11-23 10:00:00.000000+00:00"' <<<"${rmq_warn_message}${rmq_notice_message}")"
+rmq_auth_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-http\" AND message:\"HTTP access denied\"")"
+check "RabbitMQ (LGPD, ADR-0004): usuário técnico do login recusado fica legível (admin, management, level 4)" \
+  "$(jq '.level == 4 and (.message | startswith("HTTP access denied: user '"'"'admin'"'"' - invalid credentials"))' <<<"$rmq_auth_message")"
+rmq_amqp_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-amqp\" AND level:3")"
+check "RabbitMQ: login AMQP recusado é error (3) com o texto em duas linhas do broker (PLAIN login refused, smoke-app)" \
+  "$(jq '.level == 3 and (.message | startswith("Error on AMQP connection") and contains("\nPLAIN login refused: user '"'"'smoke-app'"'"' - invalid credentials"))' <<<"$rmq_amqp_message")"
+rmq_lvl_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-lvl\"")"
+check "RabbitMQ: erro real com \"[info]\" vindo do cliente continua level 3 (regra 15 não age na tag rabbitmq)" \
+  "$(jq '.level == 3 and .level_name == "error"' <<<"$rmq_lvl_message")"
+rmq_authmail_message="$(find_message "service_name:rabbitmq AND \"${rmq_id}-authmail\"")"
+check "RabbitMQ (LGPD, ADR-0004): usuário em forma de e-mail no texto é mascarado pela rede de segurança" \
+  "$(jq '(.message | contains("user '"'"'ana***@exemplo'"'"'")) and (tostring | contains("ana.souza") | not)' <<<"$rmq_authmail_message")"
+
+# Alertas do RabbitMQ: configuração esperada e disparo simulado. As mensagens do smoke não disparam alerta de verdade
+# (NOT smoke_test:true); aqui a consulta do alerta, sem esse prefixo e restrita a este run, roda no stream do alerta
+# e a contagem tem de passar do limiar (erros: só os 5 do broker, sem os logins recusados; logins: 23, uma linha
+# "failed to authenticate" por tentativa, embora cada tentativa gere 2 linhas com "invalid credentials").
+rmq_events="$(api "${GRAYLOG_URL}/api/events/definitions?per_page=200")"
+rmq_stream_id="$(api "${GRAYLOG_URL}/api/streams" | jq -r '.streams[] | select(.title == "RabbitMQ - Infra") | .id')"
+rmq_alert_count() { # <título do alerta>: quantas mensagens deste run a consulta do alerta acha no stream dele
+  local definition query streams count=0
+  definition="$(jq -c --arg t "$1" '[.event_definitions[] | select(.title == $t)][0] // {}' <<<"$rmq_events")"
+  query="$(jq -r '.config.query // "" | sub("^NOT smoke_test:true AND "; "")' <<<"$definition")"
+  streams="$(jq -c '.config.streams // []' <<<"$definition")"
+  [[ -n "$query" ]] || { echo 0; return 0; }
+  for _ in $(seq 1 30); do
+    count="$(api -X POST "${GRAYLOG_URL}/api/search/messages" --data "$(jq -nc --arg q "(${query}) AND \"${rmq_id}\"" \
+      --argjson s "$streams" '{query: $q, streams: $s, timerange: {type: "relative", range: 600}, size: 100, fields: ["message"]}')" \
+      | jq '.datarows | length' || echo 0)"
+    [[ "$count" -ge "$2" ]] && break
+    sleep 2
+  done
+  echo "$count"
+}
+check "alerta 'RabbitMQ - Erros no broker': stream RabbitMQ, level<=3 sem logins recusados, mais de 4 em 5 min" \
+  "$(jq --arg s "$rmq_stream_id" '[.event_definitions[] | select(.title == "RabbitMQ - Erros no broker")
+    | select(.config.query == "NOT smoke_test:true AND level:<=3 AND NOT message:\"invalid credentials\""
+      and .config.streams == [$s] and .config.conditions.expression.right.value == 4
+      and .config.search_within_ms == 300000 and .priority == 2)] | length == 1' <<<"$rmq_events")"
+check "alerta 'RabbitMQ - Falhas de login em massa': stream RabbitMQ, mais de 20 logins recusados (failed to authenticate) em 5 min" \
+  "$(jq --arg s "$rmq_stream_id" '[.event_definitions[] | select(.title == "RabbitMQ - Falhas de login em massa")
+    | select(.config.query == "NOT smoke_test:true AND message:\"failed to authenticate\""
+      and .config.streams == [$s] and .config.conditions.expression.right.value == 20
+      and .config.search_within_ms == 300000 and .priority == 3)] | length == 1' <<<"$rmq_events")"
+rmq_error_count="$(rmq_alert_count "RabbitMQ - Erros no broker" 5)"
+check "alerta 'RabbitMQ - Erros no broker' dispararia: 5 erros do broker (> 4), avisos e logins recusados fora (achou ${rmq_error_count})" \
+  "$([[ "$rmq_error_count" == "5" ]] && echo true || echo false)"
+rmq_auth_count="$(rmq_alert_count "RabbitMQ - Falhas de login em massa" 23)"
+check "alerta 'RabbitMQ - Falhas de login em massa' dispararia: 23 tentativas recusadas = 23 (não 46: 1 linha por tentativa), > 20 (achou ${rmq_auth_count})" \
+  "$([[ "$rmq_auth_count" == "23" ]] && echo true || echo false)"
 
 audit_stream="Cadastro - Pesquisa em logs (LGPD)"
 audit_message="$(find_message "correlation_id:${RUN_ID}-audit")"

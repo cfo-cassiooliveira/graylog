@@ -28,9 +28,10 @@ A primeira subida leva cerca de 1 a 2 minutos (o OpenSearch e o Graylog iniciali
 | Index set `Keycloak` | Prefixo `keycloak`, mesma retenção `LOG_RETENTION_DAYS` |
 | Index set `Cadastro` | Prefixo `cadastro`, mesma retenção `LOG_RETENTION_DAYS` (inclui a trilha de pesquisas em logs) |
 | Index set `Grafana` | Prefixo `grafana`, mesma retenção `LOG_RETENTION_DAYS` (logs do Grafana; e-mail/login de operador não são indexados) |
+| Index set `RabbitMQ` | Prefixo `rabbitmq`, mesma retenção `LOG_RETENTION_DAYS` (logs do broker, sem dados pessoais; [ADR-0004](docs/adr/0004-logs-rabbitmq.md)) |
 | Pipeline `Legado - enriquecimento` | `service_name` a partir da `tag` do Docker; nível real de mensagens do stderr (o Docker marca todo stderr como erro) e dos logs do SonarQube e do PostgreSQL (SonarQube e Keycloak; nível lido do texto, regra `16-text-level-from-content.rule`); JSON do servidor Keycloak vira `level`, `logger`, `thread` e texto; mensagens do listener padrão do Keycloak (`org.keycloak.events`, com username e IP) são descartadas (LGPD) → campos `http_*` do access log JSON do nginx (`legado-web` e `cadastro-web`) → 5xx = erro, 4xx = aviso → `level_name` legível e **mascaramento parcial de dados pessoais** (LGPD, [ADR-0002](docs/adr/0002-mascaramento-parcial-lgpd.md)) |
-| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais; exceção: `masked_login` mascarado nos eventos de migração, ADR-0007 do keycloak), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak), `Identidade - Migração`, `Cadastro - API`, `Cadastro - Web (nginx)`, `Cadastro - Erros`, `Cadastro - Navegador`, `Cadastro - Segurança` e `Grafana - Infra` (logs JSON do Grafana, tag `grafana`), `Cadastro - Pesquisa em logs (LGPD)` (trilha de auditoria da pesquisa por token, [ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), com `investigator_id`, `data_type`, `case_reference` e `tokens` (texto único), nunca o valor pesquisado; eventos do navegador ficam fora) |
-| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; `Legado - Assinatura interna recusada`; API lenta (> 10 requisições acima de 1 s); 5xx no nginx (legado e Cadastro); erros no SonarQube; Keycloak: falhas de login em massa (> 20 em 5 min), auditoria salva no fallback (Graylog ficou indisponível) e erros no servidor; `Identidade - Tentativas de migração inválidas`, `Identidade - Legado indisponível` e `Identidade - Falha ao marcar migração`; Cadastro: erros na aplicação e no navegador, excesso de pesquisas em logs (> 10 do mesmo investigador em 10 min) e acessos negados à pesquisa (> 2 do mesmo usuário em 10 min) |
+| Streams | `Legado - API`, `Legado - Web (nginx)`, `Legado - Infra`, `Legado - Erros` (level ≤ 3), `Legado - Navegador` (eventos do frontend), `Legado - Segurança` (login, logout, tokens recusados, rate limit), `SonarQube - Infra` (servidor e PostgreSQL do SonarQube), `Keycloak - Auditoria` (logins, falhas e ações administrativas, com id técnico do usuário e sem dados pessoais; exceção: `masked_login` mascarado nos eventos de migração, ADR-0007 do keycloak), `Keycloak - Servidor` (servidor e PostgreSQL do Keycloak), `Identidade - Migração`, `Cadastro - API`, `Cadastro - Web (nginx)`, `Cadastro - Erros`, `Cadastro - Navegador`, `Cadastro - Segurança`, `Grafana - Infra` (logs JSON do Grafana, tag `grafana`), `RabbitMQ - Infra` (logs do broker via Fluent Bit, `service_name:rabbitmq`) e `Cadastro - Pesquisa em logs (LGPD)` (trilha de auditoria da pesquisa por token, [ADR-0003](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): `audit_event` `log_search_query_issued` ou `log_search_access_denied` (403), com `investigator_id`, `data_type`, `case_reference` e `tokens` (texto único), nunca o valor pesquisado; eventos do navegador ficam fora) |
+| Alertas | Erros na aplicação; erros no navegador; falhas de autenticação em massa (> 20 em 5 min); rate limit acionado; `Legado - Assinatura interna recusada`; API lenta (> 10 requisições acima de 1 s); 5xx no nginx (legado e Cadastro); erros no SonarQube; Keycloak: falhas de login em massa (> 20 em 5 min), auditoria salva no fallback (Graylog ficou indisponível) e erros no servidor; `Identidade - Tentativas de migração inválidas`, `Identidade - Legado indisponível` e `Identidade - Falha ao marcar migração`; Cadastro: erros na aplicação e no navegador, excesso de pesquisas em logs (> 10 do mesmo investigador em 10 min) e acessos negados à pesquisa (> 2 do mesmo usuário em 10 min); RabbitMQ: erros no broker (5 ou mais em 5 min, fora logins recusados) e falhas de login em massa (> 20 em 5 min) |
 
 ### Mascaramento de dados pessoais (LGPD)
 
@@ -125,6 +126,12 @@ login/e-mail do Keycloak sem ADR. O E2E do `../cadastro` confere que nenhum e-ma
 
 **Grafana**: o `../grafana` sobe depois do Graylog (que cria `logs-read`), entra na rede `observability` (a `logs-read` agora é só do OpenSearch e do `opensearch-proxy` do Grafana, ADR-0004 do grafana), e envia o stdout JSON pelo driver GELF com `tag: grafana`. A regra `19-grafana-json.rule` mantém só `level`, `logger` e `msg` (LGPD).
 
+**RabbitMQ**: o `../rabbitmq` sobe depois do Graylog e o seu Fluent Bit (rede `observability`) envia o log do broker por
+GELF TCP (`graylog:12201`) só com `time`, `level` (já numérico: 3 error, 4 warning, 5 notice, 6 info), o texto e
+`service_name`/`tag` `rabbitmq`. Não há regra de pipeline própria. O usuário que aparece em login recusado é técnico
+(`admin`, usuários de aplicação) e não é mascarado; um login digitado por engano fica em claro (risco residual aceito no ADR-0004); e-mail/CPF no texto são mascarados pela rede de segurança do
+`message` ([ADR-0004](docs/adr/0004-logs-rabbitmq.md), que também justifica a retenção e os limiares dos alertas).
+
 Limitação conhecida: não rode o `provisioner` ou o smoke do Graylog junto com o provisionamento/smoke do `../keycloak`
 (falha intermitente nos fluxos do Keycloak, causa não comprovada); espere um terminar antes de iniciar o outro.
 
@@ -137,7 +144,7 @@ Limitação conhecida: não rode o `provisioner` ou o smoke do Graylog junto com
 | `GRAYLOG_ROOT_PASSWORD_SHA2` | Sim | SHA-256 da senha acima (`printf '%s' "<senha>" \| sha256sum`) |
 | `MONGODB_PASSWORD` | Sim | Senha do MongoDB (rede interna) |
 | `GRAYLOG_TIMEZONE` | Não | Fuso da UI (padrão `America/Sao_Paulo`) |
-| `LOG_RETENTION_DAYS` | Não | Retenção dos index sets (legado, SonarQube, Keycloak, Cadastro e Grafana) em dias (padrão 30); o smoke espera `P30D`/`P35D` e falha com outro valor |
+| `LOG_RETENTION_DAYS` | Não | Retenção dos index sets (legado, SonarQube, Keycloak, Cadastro, Grafana e RabbitMQ) em dias (padrão 30); o smoke espera `P30D`/`P35D` e falha com outro valor |
 | `OPENSEARCH_HEAP` | Não | Heap da JVM do OpenSearch (padrão `1g`) |
 
 O `scripts/generate-env.sh` preenche tudo. O `.env` está no `.gitignore`, e o [`.env.example`](.env.example) só
@@ -156,7 +163,9 @@ Envia mensagens GELF reais (TCP como o Serilog, UDP como o Docker) e confere: in
 extração dos campos do nginx (legado e Cadastro), `level_name`, a trilha de pesquisas em logs e o **mascaramento
 LGPD** de cada formato (e-mail, inclusive `%40`; login; CPF; CNPJ; celular, inclusive `+55`) pelo campo estruturado
 (`UserName`, `Cpf`, `Cnpj`, `Phone`, `Email`...) e em cada campo de texto de `LGPD_TEXT_FIELDS`; máscara e token prontos
-da origem preservados (inclusive campo aninhado `Obj_Campo`); a pesquisa por `<Campo>_token`; valor curto sem corromper texto; nenhum campo de texto vazio criado. Também carrega o
+da origem preservados (inclusive campo aninhado `Obj_Campo`); a pesquisa por `<Campo>_token`; valor curto sem corromper texto; nenhum campo de texto vazio criado. Para o RabbitMQ, envia mensagens no formato do
+Fluent Bit e confere o stream, o nível numérico, o usuário técnico legível, o e-mail mascarado e que a consulta de cada
+alerta do RabbitMQ passa do limiar (as mensagens do smoke nunca disparam alerta real). Também carrega o
 `provision.sh` sem executá-lo e confere que o erro 400 do Graylog aparece e que nome de campo inválido é recusado.
 
 ## Segurança
