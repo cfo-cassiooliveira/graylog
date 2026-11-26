@@ -408,7 +408,7 @@ cadastro_browser_stream="$(ensure_stream "Cadastro - Navegador" "Eventos do fron
   "[$(stream_rule service_name 1 cadastro-api),$(stream_rule log_source 1 browser)]")"
 # Eventos do navegador chegam por endpoint anônimo e podem ser forjados: nunca entram na trilha de segurança.
 cadastro_security_stream="$(ensure_stream "Cadastro - Segurança" "Login, logout, acesso negado, rate limit e cadastro (OWASP A09)." "$cadastro_index" false \
-  "[$(stream_rule service_name 1 cadastro-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access denied|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
+  "[$(stream_rule service_name 1 cadastro-api),$(stream_rule message 2 '(Sign-in|signed (in|out)|Access denied|User import access denied|Rate limit exceeded|registered)'),$(stream_rule log_source 1 browser true)]")"
 # Pesquisa em logs por token (ADR-0003, item 7): cada consulta gerada (log_search_query_issued) e cada tentativa sem a
 # role (log_search_access_denied, 403), com investigator_id, data_type, case_reference e tokens, nunca o valor. Fica no
 # índice do Cadastro (retenção LOG_RETENTION_DAYS: 30 dias mínimos, apagado até 35) e também em "Cadastro - API".

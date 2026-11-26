@@ -570,11 +570,20 @@ printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true"
 jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "keycloak", level: 4, _service_name: "keycloak",
   _log_source: "audit", _kind: "migration", _type: "LEGACY_USER_NOT_FOUND", _masked_login: "ana***@gmail",
   _event_id: ("migration-" + $id), short_message: ("Legacy user not found " + $id)}' | send_gelf_http >/dev/null
+# Acesso negado à importação em lote, no texto que o UserImportAudit do Cadastro grava ("access" em minúscula; o 403
+# desta área não gera o "Access denied" genérico). Só ids técnicos.
+printf '%s\0' "$(jq -nc --arg id "$RUN_ID" '{version: "1.1", _smoke_test: "true", host: "cadastro-api", level: 4,
+  _service_name: "cadastro-api", _audit_event: "user_import_access_denied", _actor_id: ("actor-" + $id),
+  short_message: ("User import access denied: user_import_access_denied for actor-" + $id)}')" | nc -w 3 "$GELF_HOST" 12201
 
 cadastro_message="$(find_message "service_name:cadastro-api AND message:\"Cadastro smoke failure ${RUN_ID}\"")"
 check "Cadastro: log da API vai para 'Cadastro - API' e, sendo erro, para 'Cadastro - Erros'" \
   "$(jq '((.streams // []) | index("Cadastro - API") != null) and ((.streams // []) | index("Cadastro - Erros") != null)' <<<"$cadastro_message")"
 check "Cadastro fora dos streams do legado" "$(jq '(.streams // []) | index("Legado - Erros") == null' <<<"$cadastro_message")"
+import_denied_message="$(find_message "service_name:cadastro-api AND audit_event:user_import_access_denied AND message:\"actor-${RUN_ID}\"")"
+check "Cadastro: acesso negado à importação em lote vai para 'Cadastro - Segurança' e 'Cadastro - API', fora da trilha de pesquisas" \
+  "$(jq '((.streams // []) | index("Cadastro - Segurança") != null) and ((.streams // []) | index("Cadastro - API") != null)
+    and ((.streams // []) | index("Cadastro - Pesquisa em logs (LGPD)") == null)' <<<"$import_denied_message")"
 migration_message="$(find_message "service_name:keycloak AND event_id:migration-${RUN_ID}")"
 check "Migração: evento LEGACY_* vai para 'Identidade - Migração' e continua em 'Keycloak - Auditoria'" \
   "$(jq '.type == "LEGACY_USER_NOT_FOUND" and ((.streams // []) | index("Identidade - Migração") != null)
