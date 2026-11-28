@@ -4,7 +4,7 @@ when
   && starts_with(to_string($message.message), "{")
 then
   // Fallback do estágio 1: se o JSON do Grafana veio truncado/inválido, o parse_json da regra do estágio 0 aborta e o
-  // texto bruto (com login, usuário e e-mail) continuaria em claro, pois a máscara só reconhece o formato de e-mail.
+  // texto bruto continuaria em claro: a rede de segurança por formato reconhece e-mail, mas não login nem usuário.
   // Quando a mensagem ainda começa com "{", troca por texto fixo sem nenhum dado do log original.
   set_field("message", "grafana log discarded: malformed JSON");
 end

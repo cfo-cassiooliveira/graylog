@@ -19,6 +19,7 @@ env:
   GITLEAKS_IMAGE: zricethezav/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854
   TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
 
+# Actions fixadas por SHA e ferramentas por digest: uma tag pode ser movida para outro conteúdo.
 jobs:
   shellcheck:
     name: ShellCheck
@@ -48,6 +49,7 @@ jobs:
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners misconfig,secret
           --severity HIGH,CRITICAL --skip-version-check --exit-code 1 /src
 
+  # Único job que sobe a stack: valida a configuração na API real do Graylog. É o mais demorado do CI.
   smoke:
     name: stack + provisionamento + smoke test
     runs-on: ubuntu-latest
@@ -59,6 +61,7 @@ jobs:
       - run: sudo sysctl -w vm.max_map_count=262144
       - run: ./scripts/generate-env.sh
       - run: docker compose up -d --build --wait graylog
+      # A segunda execução percorre o caminho de "recurso já existe"; ela acusa erro da API, não conta duplicatas.
       - name: Provisionamento (duas vezes, prova a idempotência)
         run: docker compose run --rm provisioner && docker compose run --rm provisioner
       - run: docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner

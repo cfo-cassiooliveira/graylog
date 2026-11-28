@@ -28,6 +28,7 @@ services:
     image: opensearchproject/opensearch:3.7.0@sha256:44ba7ea58a319adf61c33ab16873f9ef5dbb30b291a832d375172f0b2d24e3c9
     # Teto de memória: um serviço não derruba os demais na VM do WSL2 (20 GB, ver ~/.wslconfig).
     # Heap de 1g (OPENSEARCH_HEAP) + off-heap/Lucene: o limite fica em 2x o heap.
+    # Quem aumentar OPENSEARCH_HEAP precisa subir este limite junto.
     mem_limit: 2g
     environment:
       discovery.type: single-node
@@ -73,10 +74,11 @@ services:
       GRAYLOG_ROOT_TIMEZONE: ${GRAYLOG_TIMEZONE:-America/Sao_Paulo}
       GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:9200
       GRAYLOG_MONGODB_URI: mongodb://graylog:${MONGODB_PASSWORD}@mongodb:27017/graylog?authSource=admin
-      # Mantém 30 dias por padrão nos índices (o index set do provisionamento define a retenção real).
+      # Limite em número de índices (não em dias) do index set padrão; a retenção por projeto vem do provision.sh.
       GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: "30"
     ports:
-      # Publicados só em localhost: UI/API e GELF (TCP, UDP e HTTP) para quem roda fora do Docker.
+      # Publicados só em localhost: UI/API e GELF (TCP, UDP e HTTP) para quem roda fora do Docker. Sem TLS:
+      # serve apenas a desenvolvimento local (ADR-0001).
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:12201:12201/tcp"
       - "127.0.0.1:12201:12201/udp"
@@ -94,6 +96,7 @@ services:
 
   provisioner:
     # Cria/atualiza (idempotente) inputs, index set, streams, pipeline e alertas pela API REST do Graylog.
+    # Execução única: reaplicar é rodar o container de novo, sem passo manual na UI.
     build: ./provisioning
     depends_on:
       graylog: { condition: service_healthy }

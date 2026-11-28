@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Smoke test ponta a ponta do Graylog: envia mensagens GELF (TCP e UDP) como os serviços do legado fazem e
+# Smoke test ponta a ponta do Graylog: envia mensagens GELF (TCP, UDP e HTTP) no formato dos serviços e
 # confere ingestão, roteamento para streams, extração de campos do nginx e mascaramento de dados pessoais.
+# É o teste do projeto: pipeline, streams e alertas só podem ser verificados com o Graylog rodando.
+# Custo: exige a stack de pé e espera a indexação.
 # Uso (na raiz do projeto, com o stack de pé):
 #   docker compose run --rm -T -v "$PWD/scripts:/scripts:ro" --entrypoint /scripts/smoke-test.sh provisioner
 set -euo pipefail

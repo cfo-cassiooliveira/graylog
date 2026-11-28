@@ -2,9 +2,28 @@
 
 Graylog 7.2 + OpenSearch 3.7 + MongoDB 8.0 em Docker, **provisionado automaticamente**: inputs GELF, retenção,
 pipeline de enriquecimento com mascaramento de dados pessoais, streams e alertas. Os projetos do workspace (a
-começar pelo [legado](../legado), o [cadastro](../cadastro), o [sonarqube](../sonarqube) e o [keycloak](../keycloak)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
+começar pelo [legado](https://github.com/cfo-cassiooliveira/legado-cadastro-usuarios), o [cadastro](https://github.com/cfo-cassiooliveira/cadastro), o [sonarqube](https://github.com/cfo-cassiooliveira/sonarqube) e o [keycloak](https://github.com/cfo-cassiooliveira/Keycloak)) enviam logs estruturados para cá. Decisões: [ADR-0001](docs/adr/0001-stack-graylog-opensearch.md).
 
 **Sumário**: [Como subir](#como-subir) · [O que é provisionado](#o-que-é-provisionado-provisioningprovisionsh-idempotente) · [Como um projeto envia logs](#como-um-projeto-envia-logs) · [Variáveis](#variáveis-de-ambiente-env) · [Teste](#teste-smoke-test-ponta-a-ponta) · [Segurança](#segurança) · [Índice de docs](docs/INDEX.md)
+
+## Destaques técnicos
+
+- [Máscara de dados pessoais na gravação](provisioning/rules/templates): o dado é mascarado antes de ser indexado, por
+  regras geradas por campo. Custo: só os campos
+  listados são tratados; campo novo com dado pessoal precisa entrar numa lista.
+- [Streams e alertas como código](provisioning/provision.sh): provisionamento pela API, repetível, no lugar de ajustes
+  manuais na UI que se perdem numa stack nova.
+- [Token pesquisável gerado na origem](docs/adr/0003-pseudonimizacao-hmac-pesquisavel.md): permite achar os logs de um
+  titular sem gravar o valor em claro; em troca, as aplicações precisam gerar o token e guardar a chave.
+- [OpenSearch em rede restrita](docker-compose.yml): sem o plugin de segurança, o acesso é limitado por rede e
+  [testado no host](scripts/smoke-network.sh). Serve ao ambiente local, não substitui autenticação em produção.
+- [Smoke test ponta a ponta](scripts/smoke-test.sh): envia GELF real e confere roteamento, máscara e alertas; roda no
+  CI com a stack de pé.
+
+## Uso de IA
+
+Este projeto foi desenvolvido com auxílio de IA (**Claude Code**), na implementação e em code review. As decisões de
+arquitetura estão registradas nas ADRs, e as mudanças passam por testes automatizados e CI antes de entrar na `master`.
 
 ## Como subir
 
@@ -182,4 +201,4 @@ alerta do RabbitMQ passa do limiar (as mensagens do smoke nunca disparam alerta 
 
 ## Grafana
 
-Dashboards e alertas sobre estes logs (login pelo Keycloak, leitura do OpenSearch por proxy somente leitura): veja [../grafana](../grafana/README.md).
+Dashboards e alertas sobre estes logs (login pelo Keycloak, leitura do OpenSearch por proxy somente leitura): veja [workspace-grafana](https://github.com/cfo-cassiooliveira/workspace-grafana).

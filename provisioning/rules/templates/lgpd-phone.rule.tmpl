@@ -24,6 +24,7 @@ then
   let short_invalid = regex_replace(pattern: "(?s)^(?!\\*\\*\\*\\z).*", value: concat(generated, is_long), replacement: "");
   let skip_text = concat(already_masked, short_invalid);
   let text_guard = regex_replace(pattern: "(?s)^.+", value: skip_text, replacement: "(?!)");
+  // O valor vem do log (entrada não confiável): é escapado antes de virar regex.
   let quoted = regex_replace(pattern: "[\\\\^$.|?*+()\\[\\]{}/-]", value: raw, replacement: "\\\\$0");
   let search_start = concat(text_guard, concat("(?i)(?<![A-Za-z0-9])", quoted));
   let search_pattern = concat(search_start, "(?![A-Za-z0-9])");

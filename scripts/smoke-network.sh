@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Teste da rede "logs-read" (executa NO HOST, com o stack de pé): o OpenSearch (sem security plugin) só pode ser
-# alcançado por quem está em "logs-read", nunca pela rede "observability" nem por uma porta do host.
+# Teste da rede "logs-read" (executa NO HOST, com o stack de pé): o OpenSearch (sem security plugin) é alcançado por
+# "logs-read" e pela rede interna, nunca pela rede "observability" nem por uma porta do host.
+# Importância: sem autenticação no OpenSearch, a segmentação de rede é o controle de acesso aos logs neste ambiente.
 # Uso: ./scripts/smoke-network.sh     (Git Bash no Windows: MSYS_NO_PATHCONV=1 ./scripts/smoke-network.sh)
 set -euo pipefail
 failures=0
