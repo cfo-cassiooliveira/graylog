@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Provisionamento idempotente do Graylog pela API REST: inputs GELF, index set com retenção, streams,
 # pipeline de enriquecimento (com mascaramento de dados pessoais) e definições de alerta.
-# Pode rodar a cada "docker compose up": o que já existe (mesmo título) é mantido; regras de pipeline são atualizadas.
+# Configuração como código: o que é feito só pela UI não é versionado nem se reproduz numa stack nova.
+# Pode rodar a cada "docker compose up". O recurso é identificado pelo título: regras de pipeline e o pipeline são
+# regravados; regras de stream e alertas, quando divergem; inputs e index sets existentes não são alterados (mudar
+# LOG_RETENTION_DAYS não atinge um index set já criado). Custo: renomear um título cria outro recurso e deixa o antigo.
 set -euo pipefail
 
 : "${GRAYLOG_URL:?GRAYLOG_URL is required}"
@@ -81,7 +84,7 @@ ensure_index_set() {
   local id
   id="$(api GET /system/indices/index_sets | jq -r --arg t "$title" '.index_sets[] | select(.title == $t) | .id' | head -1)"
   if [[ -z "$id" ]]; then
-    # Parte do index set padrão e ajusta título, prefixo e retenção (rotação diária, apaga após N dias — LGPD).
+    # Parte do index set padrão e ajusta título, prefixo e retenção: mantém no mínimo N dias e apaga até N+5 (LGPD).
     local body
     body="$(api GET /system/indices/index_sets | jq -c --arg t "$title" --arg p "$prefix" --arg d "$description" --arg min "P${RETENTION_DAYS}D" \
       --arg max "P$((RETENTION_DAYS + 5))D" '
@@ -121,6 +124,7 @@ ensure_stream() {
 }
 
 # Mantém as regras de um stream existente iguais às do script (sem isso, mudanças aqui nunca chegariam ao Graylog).
+# Só regrava quando há diferença. Custo: apaga e recria as regras; o roteamento fica inconsistente nesse intervalo.
 sync_stream_rules() {
   local id="$1" title="$2" desired="$3"
   local normalize='map({field, type, value, inverted}) | sort_by(.field, .type, .value, .inverted)'
@@ -229,6 +233,9 @@ ensure_pipeline_before_streams() {
 # ---------------------------------------------------------------- alertas (event definitions)
 # Uso: ensure_event "Título" "Descrição" <prioridade 1-3> <stream_id> "<query>" <limiar> <janela_min> [campo de agrupamento]
 # Com o campo de agrupamento, o limiar vale para cada valor dele (ex.: por investigador), não para o total.
+# Alerta divergente é apagado e recriado, e perde ajustes feitos pela UI. A comparação cobre consulta, stream, limiar,
+# janela e agrupamento: mudar só descrição ou prioridade aqui não atualiza um alerta existente.
+# Nenhuma notificação externa é configurada: o disparo aparece na tela de alertas do Graylog.
 ensure_event() {
   local title="$1" description="$2" priority="$3" stream="$4" query="$5" threshold="$6" window_min="$7" group_by="${8:-}"
   local existing group_json
@@ -290,6 +297,8 @@ rabbitmq_index="$(ensure_index_set "RabbitMQ" "rabbitmq" "Logs do broker RabbitM
 for rule in "$RULES_DIR"/*.rule; do ensure_rule "$(cat "$rule")"; done
 
 # LGPD (ADR-0002): uma regra de mascaramento por campo, gerada dos modelos em rules/templates/.
+# A máscara é aplicada antes de indexar: o que for gravado em claro fica pesquisável até a retenção apagar.
+# Custo: cada nome de campo é uma regra a mais, e cada regra por tipo regrava todos os campos de texto.
 # 1) Campos estruturados (estágio 3): o NOME do campo diz o tipo do dado. O campo é mascarado e o mesmo valor é
 #    trocado pela máscara dentro dos textos, sem adivinhar. É assim que os sistemas devem enviar dados pessoais
 #    (ex.: Serilog "CPF {Cpf}"). Nomes aceitos por tipo:
